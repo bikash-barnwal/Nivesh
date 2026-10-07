@@ -1,0 +1,9 @@
+metric: ret_21d
+version: 1
+family: momentum
+definition: Twenty-one-session adjusted close return
+sql: close / lag(close, 21) OVER (PARTITION BY symbol ORDER BY date) - 1
+unit: ratio
+higher_is: stronger_momentum
+valid_range: any
+source_view: stock_daily

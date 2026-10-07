@@ -1,0 +1,9 @@
+metric: sma_stack_ok
+version: 1
+family: trend
+definition: Close above SMA20 above SMA50 above SMA200
+sql: close > sma20 AND sma20 > sma50 AND sma50 > sma200
+unit: boolean
+higher_is: stronger_trend
+valid_range: boolean
+source_view: stock_features

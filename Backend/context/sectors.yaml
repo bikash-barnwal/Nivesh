@@ -1,0 +1,46 @@
+# Maps NSE's industry classification (as published in index constituent files) to the
+# 11 sector groups used by Sector Intelligence (pic2). Version bumps when the mapping changes.
+version: 1
+benchmark_index: Nifty 500
+
+sectors:
+  Technology:
+    - Information Technology
+  Real Estate:
+    - Realty
+  Healthcare:
+    - Healthcare
+  Energy:
+    - Oil Gas & Consumable Fuels
+  Consumer Cyclical:
+    - Automobile and Auto Components
+    - Consumer Durables
+    - Consumer Services
+    - Textiles
+  Consumer Defensive:
+    - Fast Moving Consumer Goods
+  Industrials:
+    - Capital Goods
+    - Construction
+    - Services
+    - Diversified
+  Financial Services:
+    - Financial Services
+  Basic Materials:
+    - Chemicals
+    - Metals & Mining
+    - Construction Materials
+    - Forest Materials
+  Utilities:
+    - Power
+    - Utilities
+  Communication Services:
+    - Telecommunication
+    - Media Entertainment & Publication
+
+# Used for the cyclical-vs-defensive risk posture spread.
+cyclical: [Technology, Real Estate, Consumer Cyclical, Industrials, Financial Services, Basic Materials, Energy]
+defensive: [Healthcare, Consumer Defensive, Utilities, Communication Services]
+
+# Order of preference when a symbol appears in several index files.
+source_priority: [ref_idx_totalmarket, ref_idx_nifty500, ref_idx_midsmallcap400, ref_idx_microcap250, ref_idx_nifty50]

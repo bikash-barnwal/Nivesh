@@ -1,0 +1,9 @@
+metric: stage
+version: 1
+family: trend
+definition: Stage 1-4 from SMA150 slope over 20 sessions and close position versus SMA150/SMA200
+sql: "sma150_slope20 and close versus sma150/sma200 ordered as accumulation, advancing, topping, declining"
+unit: ordinal
+higher_is: phase
+valid_range: "1..4"
+source_view: stock_features

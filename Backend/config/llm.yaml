@@ -1,0 +1,17 @@
+roles:
+  extract:
+    provider: optional
+    model: optional
+    temperature: 0
+  explain:
+    provider: optional
+    model: optional
+    temperature: 0.2
+  copilot:
+    provider: optional
+    model: optional
+    temperature: 0
+policy:
+  hosted_models_receive_public_data_only: true
+  require_evidence: true
+  sql_read_only: true

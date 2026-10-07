@@ -1,0 +1,19 @@
+version: 1
+window_sessions: 756
+minimum_sessions: 120
+engines:
+  buying_pressure: [pct_up_4, up_volume_ratio]
+  selling_pressure: [pct_down_4, breakdown_share]
+  leadership: [new_highs, new_lows]
+  liquidity: [turnover_ratio_5d_50d]
+  momentum_quality: [pct_trend_aligned]
+  participation: [pct_above_sma50]
+  volatility: [median_atr_pct]
+  risk_exhaustion: [pct_rsi_over_70, pct_above_sma20]
+  structural_breadth: [pct_above_sma200]
+label_bands:
+  very_weak: [0, 20]
+  weak: [20, 40]
+  neutral: [40, 55]
+  strong: [55, 75]
+  very_strong: [75, 100]

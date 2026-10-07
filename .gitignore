@@ -1,4 +1,5 @@
 .env.production
 .env
 
-/PROMPT
+# Local market data, reports and logs (rebuildable from NSE archives)
+/data/
