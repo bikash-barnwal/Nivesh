@@ -3,3 +3,6 @@
 
 # Local market data, reports and logs (rebuildable from NSE archives)
 /data/
+
+# Machine-specific LLM provider override
+Backend/config/llm.local.yaml

@@ -1,6 +1,0 @@
-name: trend_stack
-version: 1
-entry: entry_signal
-exit: exit_signal
-position_size: 1.0
-family: trend_following

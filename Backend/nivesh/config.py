@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     data_dir: Path = REPO_DIR / "data"
     context_dir: Path = BACKEND_DIR / "context"
     llm_config: Path = BACKEND_DIR / "config" / "llm.yaml"
+    # Prefer config/llm.local.yaml (gitignored, per machine) when it exists; tests turn this off.
+    llm_local_override: bool = True
 
     query_timeout_s: float = 60.0
     max_result_rows: int = 500

@@ -1,0 +1,101 @@
+# Plain-language descriptions of every queryable view. These go into the copilot's SQL prompt, so write them for a
+# model that has never seen the data: grain, units, and the traps (adjusted vs raw, NULLs, percentile scales).
+version: 1
+views:
+  stock_daily:
+    grain: one row per stock per trading session (symbol, date)
+    notes: >-
+      Adjusted end-of-day OHLCV (open, high, low, close, volume are back-adjusted for splits, bonuses and demergers;
+      close_raw is the traded price). turnover_lacs is in Rs lakh. deliv_pct is delivery percentage (can be NULL).
+      series is EQ/BE/BZ.
+  stock_features:
+    grain: one row per EQ stock per session (symbol, date)
+    notes: >-
+      Technical features, NULL until their full window exists. sma20/50/150/200 simple moving averages of close;
+      ret_1d/4d/21d/63d are fractional returns (0.05 = +5%); rvol20 is volume divided by the average volume of the prior
+      20 sessions; atr14 and atr14_pct (ATR as a fraction of price); rsi14; high_52w/low_52w; dist_52w_high_pct is
+      negative below the high (-0.05 = 5% below); is_new_high_52w/is_new_low_52w; sma_stack_ok means close > sma20 >
+      sma50 > sma200; stage is 1-4 (2 = advancing uptrend, 4 = downtrend); history_sessions is the prior session count.
+  market_breadth:
+    grain: one row per session, over the liquid universe (EQ, close >= 20, 200+ sessions of history, turnover >= Rs 50 lakh)
+    notes: counts and shares of stocks above moving averages, advancers/decliners, new highs/lows, up-volume ratio.
+  market_engines:
+    grain: one row per session per engine (9 engines)
+    notes: >-
+      value is a 0-100 percentile rank over the trailing window (NULL during warm-up); delta_10 is the 10-session
+      change; label is Very Weak..Very Strong. engine in buying_pressure, selling_pressure, leadership, liquidity,
+      momentum_quality, participation, volatility, risk_exhaustion, structural_breadth.
+  market_regime:
+    grain: one row per session
+    notes: regime (Capitulation, Bear, Correction, Distribution, Recovery, Early Bull, Broad Bull, Late Bull, Momentum Bull, Neutral), posture, confidence, sessions_active.
+  market_events:
+    grain: one row per session per firing event
+    notes: event, severity (CRITICAL/WARNING/WATCH/INFO), horizon, confidence, streak, forward Nifty 500 returns fwd_1w/1m/3m.
+  market_analogues:
+    grain: for each session, the 5 most similar earlier sessions
+    notes: date, analogue_date, rank, distance, similarity_pct, and forward index returns observed by date.
+  sector_daily:
+    grain: one row per sector per session
+    notes: rank (1 = strongest), rs/participation/flow/leadership/exhaustion scores 0-100, rs_trend, verdict, excess returns vs Nifty 500.
+  sector_events:
+    grain: one row per sector event
+    notes: ROTATION_IN, ROTATION_OUT, DISTRIBUTION_WARNING, ACCUMULATION with forward excess returns.
+  scan_results:
+    grain: one row per scan hit per session
+    notes: scan_id (early_entry, breakout_volume, vcp_tight_base, leaders_near_highs, accumulation), rank, score 0-100.
+  index_daily:
+    grain: one row per index per session
+    notes: index_name such as 'Nifty 500', 'Nifty 50'; OHLC, volume, turnover, pe, pb.
+  sector_map:
+    grain: one row per symbol
+    notes: current sector (11 groups) and NSE industry; not point-in-time.
+  security_master:
+    grain: one row per listed symbol
+    notes: company name, isin, listing_date, face_value.
+  corporate_actions:
+    grain: one row per corporate action
+    notes: symbol, ex_date, purpose text, price_factor (multiplier applied to earlier prices).
+  circuit_hits:
+    grain: one row per stock per session that hit a circuit
+    notes: side H = upper, L = lower.
+  price_bands:
+    grain: one row per stock per session
+    notes: band_pct is the circuit band (NULL = no band).
+  market_cap:
+    grain: one row per stock per session
+    notes: mcap_cr is market capitalisation in Rs crore.
+  fno_underlyings:
+    grain: one row per F&O underlying
+    notes: symbol, lot_size, is_index.
+  symbol_changes:
+    grain: one row per rename
+    notes: old_symbol, new_symbol, change_date, final_symbol.
+  index_membership:
+    grain: one row per index membership snapshot
+    notes: current index constituents captured on snapshot_date.
+  adjust_events:
+    grain: one row per applied price adjustment
+    notes: symbol, date, purpose, event_factor, implied_factor.
+  adjust_audit:
+    grain: one row per cluster of listed corporate actions checked against prices
+    notes: >-
+      status is verified (text factor matched the market), market_snapped (market move snapped to a split ratio) or
+      unverified (no price evidence, nothing applied); session is the date the adjustment was applied.
+  stock_events:
+    grain: one row per event a model extracted from one NSE announcement
+    notes: >-
+      event_type (results_beat, order_win, promoter_buy, pledge_increase, ...), direction fixed by type, confidence
+      0-1, summary, value_cr in Rs crore (only if written in the filing, else NULL). published_at is when NSE
+      published it; available_from is the first session whose close can contain it. To avoid look-ahead only use rows
+      with available_from <= the session being analysed.
+  stock_event_study:
+    grain: one row per event type and direction
+    notes: >-
+      n events, mean_excess_1d/5d/20d (fraction, vs equal-weight liquid market, entering at the next open after
+      available_from), hit_rate_*, t_stat_* (mean / standard error). Not a prediction; small n means weak evidence.
+  news_items:
+    grain: one row per de-duplicated NSE announcement (source_id)
+    notes: symbol, published_at, category, text, url.
+  news_extracted:
+    grain: one row per announcement the extractor has processed
+    notes: status is ok, none (no event), invalid (model reply rejected) or skipped (routine filing).

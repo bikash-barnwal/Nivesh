@@ -21,6 +21,7 @@ dependencies = [
     "rich>=13.7",
     "apscheduler>=3.10,<4",
     "tzdata>=2024.1",
+    "pypdf>=6.19.0",
 ]
 
 [project.scripts]
@@ -42,6 +43,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"nivesh/copilot/prompts.py" = ["E501"]  # prose, not code
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -4,6 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from nivesh.config import settings
+
+# Tests must see the committed config/llm.yaml, never a machine's llm.local.yaml.
+settings.llm_local_override = False
+
 BHAV_HEADER = (
     "SYMBOL, SERIES, DATE1, PREV_CLOSE, OPEN_PRICE, HIGH_PRICE, LOW_PRICE, LAST_PRICE, CLOSE_PRICE, "
     "AVG_PRICE, TTL_TRD_QNTY, TURNOVER_LACS, NO_OF_TRADES, DELIV_QTY, DELIV_PER"

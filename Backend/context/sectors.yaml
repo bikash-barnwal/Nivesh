@@ -44,3 +44,41 @@ defensive: [Healthcare, Consumer Defensive, Utilities, Communication Services]
 
 # Order of preference when a symbol appears in several index files.
 source_priority: [ref_idx_totalmarket, ref_idx_nifty500, ref_idx_midsmallcap400, ref_idx_microcap250, ref_idx_nifty50]
+
+# ---- Sector intelligence rules (v1, heuristic) -------------------------------------------------------------------
+# Liquid universe used for sector statistics. Symbols without a mapped sector are reported as "Unclassified"
+# (never silently dropped) and are excluded from ranking.
+liquid_universe: {min_turnover_lacs: 100, min_close: 20, min_history_sessions: 63}
+# strength = weighted mix of the three 0-100 scores (rs, participation, flow); rank 1 = strongest.
+strength_weights: {rs: 0.4, participation: 0.3, flow: 0.3}
+# Columns for the rules below: rank, n_sectors, d1q, d1m, d1w (rank improvement over 63/21/5 sessions; positive = up).
+trend_default: STABLE
+trend_rules:
+  - {trend: ACCELERATING, when: "d1q >= 4 and d1m >= 1"}
+  - {trend: DETERIORATING, when: "d1q <= -4 and d1m <= -1"}
+  - {trend: IMPROVING, when: "d1q >= 1"}
+  - {trend: FADING, when: "d1q <= -1"}
+verdict_default: NEUTRAL
+verdict_rules:
+  - {verdict: AVOID, when: "rank >= n_sectors - 2"}
+  - {verdict: HOLD-ADD, when: "rank <= 3 and d1q >= 0"}
+# Group events. Extra columns: best_rank_63 (best rank in the prior 63 sessions), excess_1m, excess_3m (vs benchmark),
+# participation, participation_chg_10, flow, rs, strength, exhaustion. An event fires on the first session its
+# condition becomes true.
+events:
+  - name: ROTATION_OUT
+    severity: WARNING
+    when: "best_rank_63 <= 3 and rank - best_rank_63 >= 3"
+    description: Former leader lost more than a quartile of RS rank; rotation has left.
+  - name: ROTATION_IN
+    severity: INFO
+    when: "rank <= 3 and d1q >= 4"
+    description: Group climbed into the top quartile of RS rank within a quarter.
+  - name: DISTRIBUTION_WARNING
+    severity: WARNING
+    when: "excess_3m > 0 and participation_chg_10 <= -10"
+    description: Outperforming but participation is deteriorating; distribution into strength.
+  - name: ACCUMULATION
+    severity: INFO
+    when: "d1q >= 2 and participation_chg_10 >= 10 and flow >= 60"
+    description: Rank improving with rising participation and positive flow.

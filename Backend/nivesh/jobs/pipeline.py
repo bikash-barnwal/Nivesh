@@ -6,10 +6,12 @@ import json
 import logging
 import time
 from collections import Counter
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from nivesh.analytics import build_analytics
+from nivesh.alerts import run_alerts
+from nivesh.analytics import AnalyticsError, run_analytics
 from nivesh.config import settings
 from nivesh.data import build, nse, quality, reference
 
@@ -52,13 +54,22 @@ def run_eod_pipeline(start: date | None = None, end: date | None = None) -> dict
             "reference": reference.build_reference(),
             "stock_daily": build.build_adjusted(),
         }
-        record["analytics"] = build_analytics()
+        steps = run_analytics()
+        record["analytics"] = [asdict(s) for s in steps]
+        failed = [s.name for s in steps if s.error]
+        if failed:
+            raise AnalyticsError(steps)
         q = quality.run_quality()
         record["quality"] = {"critical_issues": q["critical_issues"], "data_through": q["data_through"]}
 
         from nivesh.data.engine import get_engine
 
-        get_engine().refresh()
+        engine = get_engine()
+        engine.refresh()
+        try:
+            record["alerts"] = run_alerts(engine)
+        except Exception as exc:  # alerting must never fail the data pipeline
+            record["alerts"] = {"error": f"{type(exc).__name__}: {exc}"}
         record["status"] = "ok"
     except Exception as exc:  # job log must capture every failure
         log.exception("EOD pipeline failed")

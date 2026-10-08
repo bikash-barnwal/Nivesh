@@ -133,3 +133,102 @@ def test_file_with_wrong_dates_is_skipped(data_dirs):
     # NSE served 1 Oct data under the 2 Oct (holiday) file name
     write_bhav(raw, date(2026, 10, 2), [bhav_row("ABC", "EQ", date(2026, 10, 1), 10, 10, 10, 10, 10, 5)])
     assert build.build_stock_raw(raw_dir=raw, parquet_dir=parquet) == {2026: 1}
+
+
+def test_legacy_bhavcopy_without_optional_columns_still_parses(tmp_path):
+    """The oldest NSE legacy files (2010-era) have no TOTALTRADES or ISIN column."""
+    import zipfile
+
+    path = tmp_path / "20100104.zip"
+    csv = (
+        "SYMBOL,SERIES,OPEN,HIGH,LOW,CLOSE,LAST,PREVCLOSE,TOTTRDQTY,TOTTRDVAL,TIMESTAMP,\n"
+        "20MICRONS,EQ,45.5,45.95,43.8,44.05,44.45,44.25,164131,7414680.5,04-JAN-2010,\n"
+    )
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("cm04JAN2010bhav.csv", csv)
+    df = build.parse_bhav_old(path)
+    row = df.row(0, named=True)
+    assert row["symbol"] == "20MICRONS" and row["date"] == date(2010, 1, 4)
+    assert row["volume"] == 164131 and row["trades"] is None and row["deliv_qty"] is None
+    assert row["turnover_lacs"] == pytest.approx(74.146805)
+
+
+def test_an_unreadable_file_is_skipped_and_reported_not_fatal(data_dirs):
+    raw, parquet = data_dirs
+    good_day, bad_day = date(2026, 1, 5), date(2026, 1, 6)
+    write_bhav(raw, good_day, [bhav_row("ABC", "EQ", good_day, 10, 10, 11, 9, 10.5, 100)])
+    broken = raw / "bhav" / "2026" / f"{bad_day:%Y%m%d}.csv"
+    broken.write_bytes(b"this,is,not,a,bhavcopy\n1,2,3,4,5\n")
+    build.SKIPPED_FILES.clear()
+    assert build.build_stock_raw(raw_dir=raw, parquet_dir=parquet) == {2026: 1}
+    assert len(build.SKIPPED_FILES) == 1 and "20260106.csv" in build.SKIPPED_FILES[0]
+    build.SKIPPED_FILES.clear()
+
+
+def test_weekend_session_filed_under_a_weekday_is_kept_but_holiday_duplicates_are_not(data_dirs):
+    raw, parquet = data_dirs
+    friday, saturday, monday = date(2026, 1, 9), date(2026, 1, 10), date(2026, 1, 12)
+    write_bhav(raw, friday, [bhav_row("ABC", "EQ", friday, 10, 10, 11, 9, 10.5, 100)])
+    # a special Saturday session, published in the file named for the next weekday (Monday)
+    write_bhav(raw, monday, [bhav_row("ABC", "EQ", saturday, 10.5, 10, 12, 10, 11, 200)])
+    # an exchange holiday (Tuesday) served with Friday's data again: a duplicate, not a session
+    holiday = date(2026, 1, 13)
+    write_bhav(raw, holiday, [bhav_row("ABC", "EQ", friday, 10, 10, 11, 9, 10.5, 100)])
+    assert build.build_stock_raw(raw_dir=raw, parquet_dir=parquet) == {2026: 2}
+    dates = duckdb.sql(
+        f"SELECT date FROM '{(parquet / 'stock_daily_raw' / 'year=2026' / 'part.parquet').as_posix()}' ORDER BY date"
+    ).fetchall()
+    assert [d[0] for d in dates] == [friday, saturday]
+
+
+@pytest.mark.parametrize(
+    ("file_day", "cell", "expected"),
+    [
+        (date(2023, 4, 6), "06-04-2023", date(2023, 4, 6)),  # day-first
+        (date(2023, 4, 6), "04-06-2023", date(2023, 4, 6)),  # month-first: same file, other format
+        (date(2023, 4, 13), "13-04-2023", date(2023, 4, 13)),  # unambiguous
+        (date(2024, 5, 20), "18-05-2024", date(2024, 5, 18)),  # Saturday session filed under Monday (only dmy is valid)
+        (date(2024, 5, 20), "05-18-2024", date(2024, 5, 18)),  # same session, month-first
+        (date(2023, 6, 1), "05-06-2023", None),  # a holiday duplicate whose cell is ambiguous: never guessed
+    ],
+)
+def test_index_dates_are_resolved_against_the_filename(tmp_path, file_day, cell, expected):
+    path = tmp_path / f"{file_day:%Y%m%d}.csv"
+    path.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value\n"
+        f"Nifty 500,{cell},1,2,0.5,1.5\n",
+        encoding="utf-8",
+    )
+    assert build.parse_index(path)["date"][0] == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "canonical"),
+    [
+        ("CNX Nifty", "Nifty 50"),
+        ("S&P CNX Nifty", "Nifty 50"),
+        ("Nifty 50", "Nifty 50"),
+        ("CNX 500", "Nifty 500"),
+        ("Nifty 500", "Nifty 500"),
+        ("CNX Nifty Junior", "Nifty Next 50"),
+        ("CNX 100", "Nifty 100"),
+        ("NIFTY Midcap 50", "Nifty Midcap 50"),
+        ("CNX IT", "Nifty IT"),
+        ("Nifty IT", "Nifty IT"),
+        ("  Nifty   Bank ", "Nifty Bank"),
+        ("India VIX", "India VIX"),
+    ],
+)
+def test_index_names_are_unified_across_nse_renames(raw, canonical):
+    assert build.canonical_index_name(raw) == canonical
+
+
+def test_slash_dates_and_old_names_parse_into_one_series(tmp_path):
+    old = tmp_path / "20150529.csv"
+    old.write_text(
+        "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value\n"
+        "CNX 500,29/05/2015,6878.5,6963.95,6864.85,6959.85\n",
+        encoding="utf-8",
+    )
+    row = build.parse_index(old).row(0, named=True)
+    assert row["date"] == date(2015, 5, 29) and row["index_name"] == "Nifty 500" and row["index_name_raw"] == "CNX 500"

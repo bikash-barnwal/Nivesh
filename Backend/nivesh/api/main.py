@@ -11,7 +11,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from nivesh import __version__
+from nivesh.api.alerts import router as alerts_router
+from nivesh.api.copilot import router as copilot_router
 from nivesh.api.intelligence import router as intelligence_router
+from nivesh.api.lab import router as lab_router
+from nivesh.api.market import router as market_router
+from nivesh.api.news import router as news_router
+from nivesh.api.paper import router as paper_router
+from nivesh.api.sectors import router as sectors_router
+from nivesh.api.stocks import router as stocks_router
 from nivesh.data.engine import get_engine
 
 
@@ -31,7 +39,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Nivesh API", version=__version__, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:15001", "http://127.0.0.1:15001"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -75,3 +83,11 @@ def views() -> list[ViewOut]:
 
 
 app.include_router(intelligence_router)
+app.include_router(market_router)
+app.include_router(lab_router)
+app.include_router(paper_router)
+app.include_router(alerts_router)
+app.include_router(copilot_router)
+app.include_router(sectors_router)
+app.include_router(stocks_router)
+app.include_router(news_router)

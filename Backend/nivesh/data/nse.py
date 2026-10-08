@@ -1,12 +1,13 @@
 """Download daily NSE archive files into an immutable raw store.
 
-Layout: data/raw/<dataset>/<YYYY>/<YYYYMMDD>.<csv|zip>
+Layout: data/raw/<dataset>/<YYYY>/<YYYYMMDD>.<csv|zip|dat>
 A `.missing` marker is written for dates that 404 long enough after the fact (holidays),
 so reruns never hit NSE for them again.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,6 +32,27 @@ HEADERS = {
 # A 404 for a date older than this is treated as a non-trading day and remembered.
 MISSING_GRACE_DAYS = 3
 RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
+# 403/429 from NSE means "slow down": back off for much longer than for a transient server error.
+RATE_LIMIT_STATUSES = {403, 429}
+RATE_LIMIT_BACKOFF_S = 30.0
+DEFAULT_RATE_PER_S = 2.5
+
+
+class Throttle:
+    """Caps the combined request rate of all worker threads."""
+
+    def __init__(self, per_second: float) -> None:
+        self.interval = 1.0 / per_second
+        self._lock = threading.Lock()
+        self._next = 0.0
+
+    def wait(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            start = max(now, self._next)
+            self._next = start + self.interval
+        if start > now:
+            time.sleep(start - now)
 
 
 @dataclass(frozen=True)
@@ -42,6 +64,17 @@ class Dataset:
     # Snapshot datasets have no dated URL: they can only be captured for today, and the
     # dated raw copies build up their history over time.
     snapshot: bool = False
+    # Inclusive availability window; no requests are made for dates outside it.
+    since: date | None = None
+    until: date | None = None
+
+    def covers(self, d: date) -> bool:
+        return (self.since is None or d >= self.since) and (self.until is None or d <= self.until)
+
+
+# NSE switched to sec_bhavdata_full (with delivery) in 2019; older sessions use the legacy zip + MTO file.
+NEW_BHAV_SINCE = date(2019, 8, 1)
+OLD_BHAV_UNTIL = date(2019, 9, 30)
 
 
 _ARCHIVE = "https://nsearchives.nseindia.com/content"
@@ -67,11 +100,28 @@ DATASETS: dict[str, Dataset] = {
         "bhav",
         "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{d:%d%m%Y}.csv",
         "symbol",
+        since=NEW_BHAV_SINCE,
+    ),
+    # Legacy bhavcopy (no delivery); delivery for these dates comes from the MTO file below.
+    "bhav_old": Dataset(
+        "bhav_old",
+        "https://nsearchives.nseindia.com/content/historical/EQUITIES/{d:%Y}/{MON}/cm{d:%d}{MON}{d:%Y}bhav.csv.zip",
+        "",
+        ".zip",
+        until=OLD_BHAV_UNTIL,
+    ),
+    "mto": Dataset(
+        "mto",
+        "https://nsearchives.nseindia.com/archives/equities/mto/MTO_{d:%d%m%Y}.DAT",
+        "security wise delivery",
+        ".dat",
+        until=OLD_BHAV_UNTIL,
     ),
     "index": Dataset(
         "index",
         "https://nsearchives.nseindia.com/content/indices/ind_close_all_{d:%d%m%Y}.csv",
         "index name",
+        since=date(2013, 1, 1),
     ),
     # PR zip: bc (corporate actions), bh (price-band hits), mcap, hl (52w high/low), an/bm (announcements)
     "pr": Dataset(
@@ -85,11 +135,12 @@ DATASETS: dict[str, Dataset] = {
         "bands",
         "https://nsearchives.nseindia.com/content/equities/sec_list_{d:%d%m%Y}.csv",
         "symbol",
+        since=date(2022, 1, 1),
     ),
     **SNAPSHOTS,
 }
 
-DAILY_DEFAULT = ("bhav", "index", "pr", "bands")
+DAILY_DEFAULT = ("bhav", "bhav_old", "mto", "index", "pr", "bands")
 ALL_DEFAULT = (*DAILY_DEFAULT, *SNAPSHOTS)
 
 Status = Literal["cached", "downloaded", "missing", "skipped", "error"]
@@ -134,6 +185,7 @@ def fetch_day(
     today: date | None = None,
     raw_dir: Path | None = None,
     backoff_s: float = 2.0,
+    throttle: Throttle | None = None,
 ) -> FetchResult:
     today = today or date.today()
     dest = raw_path(ds.name, d, raw_dir)
@@ -143,9 +195,11 @@ def fetch_day(
     if marker.exists():
         return FetchResult(ds.name, d, "skipped")
 
-    url = ds.url.format(d=d)
+    url = ds.url.format(d=d, MON=d.strftime("%b").upper())
     detail = ""
     for attempt in range(3):
+        if throttle:
+            throttle.wait()
         try:
             resp = client.get(url)
         except httpx.HTTPError as exc:
@@ -160,7 +214,8 @@ def fetch_day(
             return FetchResult(ds.name, d, "missing")
         if resp.status_code in RETRY_STATUSES:
             detail = f"HTTP {resp.status_code}"
-            time.sleep(backoff_s * 2**attempt)
+            limited = resp.status_code in RATE_LIMIT_STATUSES
+            time.sleep((RATE_LIMIT_BACKOFF_S if limited else backoff_s) * 2**attempt)
             continue
         if resp.status_code != 200:
             return FetchResult(ds.name, d, "error", f"HTTP {resp.status_code}")
@@ -187,6 +242,7 @@ def download_range(
     on_result: Callable[[FetchResult], None] | None = None,
     transport: httpx.BaseTransport | None = None,
     today: date | None = None,
+    rate: float | None = DEFAULT_RATE_PER_S,
 ) -> list[FetchResult]:
     today = today or date.today()
     jobs: list[tuple[Dataset, date]] = []
@@ -196,11 +252,14 @@ def download_range(
             if end >= today:  # snapshots can only be captured as of today
                 jobs.append((ds, today))
         else:
-            jobs.extend((ds, d) for d in weekdays(start, end))
+            jobs.extend((ds, d) for d in weekdays(start, end) if ds.covers(d))
+    throttle = Throttle(rate) if rate else None
     results: list[FetchResult] = []
     with httpx.Client(headers=HEADERS, timeout=20.0, follow_redirects=True, transport=transport) as client:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(fetch_day, client, ds, d, raw_dir=raw_dir, today=today) for ds, d in jobs]
+            futures = [
+                pool.submit(fetch_day, client, ds, d, raw_dir=raw_dir, today=today, throttle=throttle) for ds, d in jobs
+            ]
             for fut in as_completed(futures):
                 res = fut.result()
                 results.append(res)

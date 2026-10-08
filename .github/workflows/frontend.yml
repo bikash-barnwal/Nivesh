@@ -1,0 +1,53 @@
+name: frontend
+
+on:
+  push:
+    paths: ["Frontend/**", "Backend/**", ".github/workflows/frontend.yml"]
+  pull_request:
+    paths: ["Frontend/**", "Backend/**", ".github/workflows/frontend.yml"]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit -p .
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+      - name: Synthetic demo data (never real NSE data in CI)
+        working-directory: Backend
+        run: |
+          uv sync --locked
+          uv run nivesh demo-data
+      - working-directory: Frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          NIVESH_DEMO_DIR=../data/demo npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: Frontend/test-results

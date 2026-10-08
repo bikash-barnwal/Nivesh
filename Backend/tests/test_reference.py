@@ -131,3 +131,49 @@ def test_circuit_hits_and_mcap_from_pr_zip(data_dirs):
     mc = _read(parquet, "market_cap").row(0, named=True)
     assert mc["shares_issued"] == 35286502
     assert abs(mc["mcap_cr"] - 733.5005) < 1e-3
+
+
+def test_empty_daily_files_inside_a_pr_zip_are_tolerated(data_dirs):
+    """Days with no corporate actions / circuit hits publish zero-byte files; they must not abort a rebuild."""
+    import zipfile
+
+    raw, parquet = data_dirs
+    z = raw / "pr" / "2026" / "20261006.zip"
+    z.parent.mkdir(parents=True)
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("bc06102026.csv", "")
+        zf.writestr("bh06102026.csv", "")
+        zf.writestr("mcap06102026.csv", "")
+    from nivesh.data import build
+
+    assert build.read_bc(z) is None
+    assert build.build_corporate_actions(raw_dir=raw, parquet_dir=parquet) == 0
+    assert reference.build_circuit_hits(raw, parquet) == 0
+    assert reference.build_market_cap(raw, parquet) == 0
+
+
+def test_old_circuit_hit_files_with_an_sr_column_parse(data_dirs):
+    import zipfile
+
+    raw, parquet = data_dirs
+    z = raw / "pr" / "2012" / "20120103.zip"
+    z.parent.mkdir(parents=True)
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr(
+            "bh03012012.csv", "SYMBOL,SR,SECURITY,HIGH/LOW,INDEX FLAG\nABAN,EQ,ABAN OFFSHORE,H,N\nXYZ,BE,XYZ LTD,L,N\n"
+        )
+    assert reference.build_circuit_hits(raw, parquet) == 2
+    frame = pl.read_parquet(parquet / "circuit_hits" / "circuit_hits.parquet")
+    assert dict(zip(frame["symbol"], frame["side"], strict=True)) == {"ABAN": "H", "XYZ": "L"}
+
+
+def test_non_utf8_bytes_in_a_legacy_file_do_not_break_parsing(data_dirs):
+    import zipfile
+
+    raw, parquet = data_dirs
+    z = raw / "pr" / "2011" / "20110103.zip"
+    z.parent.mkdir(parents=True)
+    body = b"SYMBOL,SR,SECURITY,HIGH/LOW,INDEX FLAG\nABAN,EQ,CAF\xc9 COMPANY,H,N\n"  # 0xC9 is not valid UTF-8
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("bh03012011.csv", body)
+    assert reference.build_circuit_hits(raw, parquet) == 1

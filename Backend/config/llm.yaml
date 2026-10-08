@@ -1,16 +1,50 @@
+# LLM provider and role configuration. All providers speak the OpenAI-compatible Chat Completions API, so one client
+# covers them. Model ids below are starting points: provider catalogs change, so confirm them (run `uv run nivesh llm ping`)
+# and override per machine with NIVESH_LLM_CONFIG=config/llm.local.yaml (gitignored). Keys come from the environment.
+#
+# Privacy: hosted models only ever see public market data, schema and docs. Anything marked private (portfolio, broker
+# data) is refused unless the provider is local (ollama).
+providers:
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    headers: {HTTP-Referer: http://localhost, X-Title: Nivesh}
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    key_env: GEMINI_API_KEY
+  kimi:
+    base_url: https://api.moonshot.ai/v1
+    key_env: MOONSHOT_API_KEY
+  nvidia:
+    base_url: https://integrate.api.nvidia.com/v1
+    key_env: NVIDIA_API_KEY
+  ollama:
+    base_url: http://localhost:11434/v1
+    key_env: null
+    local: true
+
 roles:
-  extract:
-    provider: optional
-    model: optional
-    temperature: 0
-  explain:
-    provider: optional
-    model: optional
-    temperature: 0.2
-  copilot:
-    provider: optional
-    model: optional
-    temperature: 0
+  router:  {provider: gemini,     model: gemini-2.5-flash,       temperature: 0,   json: true}
+  sql:     {provider: openrouter, model: moonshotai/kimi-k2,     temperature: 0,   json: true}
+  repair:  {provider: openrouter, model: moonshotai/kimi-k2,     temperature: 0,   json: true}
+  synth:   {provider: gemini,     model: gemini-2.5-flash,       temperature: 0.2, json: false}
+  extract: {provider: gemini,     model: gemini-2.5-flash,       temperature: 0,   json: true}
+
+# Tried in order when the primary fails (timeout, rate limit, bad JSON).
+fallbacks:
+  sql:
+    - {provider: gemini, model: gemini-2.5-pro}
+  router:
+    - {provider: openrouter, model: google/gemini-2.5-flash}
+  synth:
+    - {provider: openrouter, model: google/gemini-2.5-flash}
+
+limits:
+  timeout_s: 90
+  max_calls_per_day: 500
+  max_sql_attempts: 3
+  max_result_rows: 200
+
 policy:
   hosted_models_receive_public_data_only: true
   require_evidence: true
