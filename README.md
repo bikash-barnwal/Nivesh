@@ -21,7 +21,6 @@ evidence-first AI copilot.
 | **Copilot** | Ask in plain English; the answer links to the SQL, result table, raw evidence and freshness. Works with Gemini, Kimi, OpenRouter, NVIDIA Nemotron or local Ollama |
 | **UI** | React + TypeScript + TanStack Router/Query/Table/Virtual, time-travel via `?as_of=` on every page |
 
-
 ## Quick start
 
 Requirements: Python 3.12 + [uv](https://docs.astral.sh/uv/), Node 20+, Git.
