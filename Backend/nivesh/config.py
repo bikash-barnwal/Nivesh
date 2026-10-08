@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     llm_config: Path = BACKEND_DIR / "config" / "llm.yaml"
     # Prefer config/llm.local.yaml (gitignored, per machine) when it exists; tests turn this off.
     llm_local_override: bool = True
+    # Extra local folders of Markdown notes for the copilot's knowledge search (JSON list in NIVESH_EXTRA_DOCS_DIRS).
+    extra_docs_dirs: list[Path] = []
 
     query_timeout_s: float = 60.0
     max_result_rows: int = 500

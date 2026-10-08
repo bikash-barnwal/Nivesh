@@ -92,6 +92,7 @@ def chunk_yaml(path: Path, rel: str) -> list[Chunk]:
 
 def default_roots() -> list[tuple[Path, str]]:
     return [
+        *((folder, "*.md") for folder in settings.extra_docs_dirs),
         (BACKEND_DIR, "README.md"),
         (settings.context_dir, "*.yaml"),
         (settings.context_dir / "metrics", "*.yaml"),
