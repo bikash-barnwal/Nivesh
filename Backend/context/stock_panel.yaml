@@ -1,0 +1,38 @@
+# Stock panel, v1 (heuristic). Used by GET /api/stocks/{symbol}/panel.
+version: 1
+benchmark_index: Nifty 500
+
+# Stage 1 safety filter. Every check reports value, threshold and PASS/FAIL (None when the data is unavailable).
+safety_stage1:
+  circuit_days_20d_max: 5        # fewer than this many circuit sessions in the last 20
+  circuit_streak_max: 3          # fewer than this many consecutive circuit sessions
+  min_avg_volume_30d: 100000
+  min_avg_volume_50d: 100000
+  min_price: 30
+  blocked_price_bands: [2, 5]    # narrow circuit bands are rejected
+
+# Momentum lifecycle: ordered rules over stock_features columns; first match wins.
+lifecycle_default: BASE
+lifecycle_rules:
+  - {state: DECLINE, when: "stage = 4"}
+  - {state: TOPPING, when: "stage = 3"}
+  - {state: LEAD, when: "stage = 2 and sma_stack_ok and dist_52w_high_pct >= -0.10"}
+  - {state: ADVANCE, when: "stage = 2"}
+  - {state: ACCUMULATION, when: "stage = 1 and close >= sma50"}
+  - {state: BASE, when: "stage = 1"}
+
+# Gauges are 0-100. Columns: any stock_features column plus rs_rank (percentile of 63-session return among liquid
+# stocks that day) and rs_500 (stock 63-session return relative to the benchmark index, 100 = in line).
+gauges:
+  - name: trend
+    label: Trend
+    expr: "least(100, if(stage = 2, 60, if(stage = 3, 40, if(stage = 1, 30, 10))) + if(sma_stack_ok, 25, 0) + if(close > sma50, 15, 0))"
+  - name: relative_strength
+    label: Relative strength
+    expr: "rs_rank"
+  - name: exhaustion
+    label: Exhaustion
+    expr: "least(100, greatest(0, (rsi14 - 50) * 2 + if(close_vs_sma20_pct > 0.1, 20, 0)))"
+  - name: volume
+    label: Volume
+    expr: "least(100, rvol20 * 40)"

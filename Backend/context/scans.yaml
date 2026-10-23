@@ -1,0 +1,30 @@
+# Stock scans, v1. Columns available to `when`/`score`: any column of stock_features.
+# `universe` is the common safety filter applied to every scan; `score` is clamped to 0-100.
+version: 1
+universe: "close >= 30 and avg_turnover20_lacs >= 100 and history_sessions >= 200"
+scans:
+  - id: early_entry
+    label: "Early Entry: smart money turn"
+    state: smart-money-turn
+    when: "close_vs_sma20_pct >= 0 and close_vs_sma20_pct <= 0.05 and rvol20 >= 1.2 and stage <= 2"
+    score: "70 + least(30, rvol20 * 10)"
+  - id: breakout_volume
+    label: Breakout with volume
+    state: breakout
+    when: "dist_52w_high_pct >= -0.03 and rvol20 >= 1.5"
+    score: "70 + least(30, rvol20 * 10)"
+  - id: vcp_tight_base
+    label: Tight base / VCP
+    state: tight-base
+    when: "range_pct <= 0.05 and atr14_pct <= 0.05 and stage = 2"
+    score: "60 + least(40, (0.05 - range_pct) * 400)"
+  - id: leaders_near_highs
+    label: Leaders near highs
+    state: leader
+    when: "dist_52w_high_pct >= -0.10 and ret_21d > 0 and sma_stack_ok"
+    score: "65 + least(35, ret_21d * 100)"
+  - id: accumulation
+    label: Accumulation
+    state: accumulation
+    when: "rvol20 >= 1.5 and ret_21d > 0 and close >= sma50"
+    score: "60 + least(40, rvol20 * 10)"

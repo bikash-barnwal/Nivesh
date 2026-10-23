@@ -1,0 +1,29 @@
+# Trend-following: buy liquid stocks in an aligned uptrend near their highs, ranked by 3-month momentum.
+name: trend_stack
+version: v1
+label: "Trend Stack v1: aligned uptrend near highs"
+family: trend
+status: research
+universe:
+  filters: "close >= 30 and avg_turnover20_lacs >= 100 and turnover_lacs >= 1000 and history_sessions >= 200"
+regime_block: [Bear, Capitulation]
+entry:
+  when: "sma_stack_ok and rvol20 >= 1.0 and dist_52w_high_pct >= -0.15 and stage = 2"
+  rank_by: ["ret_63d desc", "rvol20 desc"]
+  max_new_per_day: 3
+portfolio:
+  initial_capital: 10000000
+  max_positions: 10
+  risk_per_trade_pct: 1.0
+  max_position_pct: 8
+  max_sector_pct: 40
+exit:
+  hard_stop_pct: 6
+  breakeven_trigger_pct: 10
+  trail_sma: 50
+  time_stop_days: 60
+costs:
+  brokerage_bps: 3
+  stt_bps: 10
+  exchange_gst_bps: 0.5
+  slippage_bps: 10

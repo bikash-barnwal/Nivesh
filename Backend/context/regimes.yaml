@@ -1,0 +1,36 @@
+# Market regime classifier, v1 (heuristic). Rules are evaluated in order; the first match wins.
+# Columns available to `when`: n_stocks, pct_above_sma20, pct_above_sma50, pct_above_sma200, adv_share, dec_share,
+#   idx_close, idx_sma50, idx_sma200, idx_drawdown (negative fraction from the 252-session high),
+#   idx_below_sma50, idx_below_sma200 (booleans; false when the benchmark index is unavailable).
+version: 1
+benchmark_index: Nifty 500
+default: {name: Neutral, posture: SELECTIVE}
+confidence_window_sessions: 5   # confidence = % of the last N sessions classified as the same regime
+rules:
+  - name: Capitulation
+    posture: CAPITAL PRESERVATION
+    when: "pct_above_sma200 < 0.15 and pct_above_sma20 < 0.15 and idx_drawdown <= -0.20"
+  - name: Bear
+    posture: CAPITAL PRESERVATION
+    when: "idx_below_sma200 and idx_below_sma50 and pct_above_sma200 < 0.30"
+  - name: Correction
+    posture: DEFENSIVE
+    when: "idx_below_sma50 and pct_above_sma50 < 0.45 and idx_drawdown <= -0.07"
+  - name: Distribution
+    posture: DEFENSIVE
+    when: "not idx_below_sma50 and pct_above_sma50 < 0.40 and idx_drawdown > -0.07"
+  - name: Recovery
+    posture: SELECTIVE
+    when: "idx_below_sma200 and not idx_below_sma50"
+  - name: Momentum Bull
+    posture: RISK ON
+    when: "pct_above_sma200 >= 0.75 and pct_above_sma50 >= 0.70 and pct_above_sma20 >= 0.60"
+  - name: Broad Bull
+    posture: RISK ON
+    when: "pct_above_sma200 >= 0.65 and pct_above_sma50 >= 0.60"
+  - name: Early Bull
+    posture: RISK ON
+    when: "not idx_below_sma200 and pct_above_sma200 >= 0.45 and pct_above_sma50 >= 0.50"
+  - name: Late Bull
+    posture: SELECTIVE
+    when: "not idx_below_sma200 and pct_above_sma200 >= 0.45 and pct_above_sma50 < 0.55"

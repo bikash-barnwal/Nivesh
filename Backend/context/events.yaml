@@ -1,0 +1,72 @@
+# Market intelligence events, v1 (heuristic). Columns available to `when` and `confidence`:
+# the nine engine values (0-100 percentiles): buying_pressure, selling_pressure, leadership, liquidity,
+# momentum_quality, participation, volatility, risk_exhaustion, structural_breadth.
+version: 1
+horizons:
+  short: 1-10d
+  swing: 2-8w
+  positional: 3-12m
+events:
+  - name: vocal_distribution
+    severity: CRITICAL
+    horizon: 1-10d
+    when: "selling_pressure >= 75 and structural_breadth <= 35"
+    confidence: "(selling_pressure + 100 - structural_breadth) / 2"
+    description: Heavy, broad selling while structural breadth is weak.
+    playbook: distribution
+  - name: volatility_explosion
+    severity: WARNING
+    horizon: 1-10d
+    when: "volatility >= 85"
+    confidence: "volatility"
+    description: Market-wide volatility is in the top band of the trailing window.
+    playbook: volatility
+  - name: leadership_collapse
+    severity: WARNING
+    horizon: 2-8w
+    when: "leadership <= 20"
+    confidence: "100 - leadership"
+    description: New lows are outpacing new highs; leadership is deteriorating.
+    playbook: distribution
+  - name: breakout_failure_risk
+    severity: WATCH
+    horizon: 1-10d
+    when: "momentum_quality <= 30 and buying_pressure >= 40"
+    confidence: "(100 - momentum_quality + buying_pressure) / 2"
+    description: Buying is present but few stocks are in aligned uptrends; breakouts may fail.
+    playbook: caution
+  - name: oversold_washout
+    severity: INFO
+    horizon: 1-10d
+    when: "risk_exhaustion <= 15 and selling_pressure >= 60"
+    confidence: "(100 - risk_exhaustion + selling_pressure) / 2"
+    description: Selling looks exhausted; few stocks remain extended.
+    playbook: washout
+  - name: breadth_thrust
+    severity: INFO
+    horizon: 2-8w
+    when: "buying_pressure >= 80 and participation >= 60"
+    confidence: "(buying_pressure + participation) / 2"
+    description: Buying pressure and participation are broadening together.
+    playbook: thrust
+playbooks:
+  distribution:
+    short: Tighten stops, cut laggards, avoid fresh entries until the signal clears.
+    swing: Reduce gross exposure into strength; hedge or raise cash in tranches.
+    positional: Review portfolio risk; deterioration events often lead index damage by weeks.
+  volatility:
+    short: Reduce position size; widen stops only with smaller size.
+    swing: Expect larger swings; avoid adding leverage.
+    positional: Volatility regimes mean-revert; avoid reacting to single sessions.
+  caution:
+    short: Prefer confirmation before chasing breakouts.
+    swing: Favour names with intact stage-2 structure.
+    positional: No change on its own.
+  washout:
+    short: Watch for stabilisation before scaling in.
+    swing: Staged accumulation of leaders is historically favourable.
+    positional: Check balance-sheet quality before adding.
+  thrust:
+    short: Trend followers may add on pullbacks.
+    swing: Breadth thrusts tend to persist for weeks.
+    positional: Positive but not sufficient on its own.

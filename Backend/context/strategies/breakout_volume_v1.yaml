@@ -1,0 +1,29 @@
+# Breakouts: stocks within 3% of their 52-week high on heavy volume, in a stage-2 uptrend.
+name: breakout_volume
+version: v1
+label: "Breakout + Volume v1"
+family: breakout
+status: research
+universe:
+  filters: "close >= 30 and avg_turnover20_lacs >= 150 and turnover_lacs >= 1000 and history_sessions >= 252"
+regime_block: [Bear, Capitulation, Correction]
+entry:
+  when: "dist_52w_high_pct >= -0.03 and rvol20 >= 1.5 and stage = 2 and rsi14 < 80"
+  rank_by: ["rvol20 desc", "ret_21d desc"]
+  max_new_per_day: 2
+portfolio:
+  initial_capital: 10000000
+  max_positions: 8
+  risk_per_trade_pct: 0.75
+  max_position_pct: 8
+  max_sector_pct: 35
+exit:
+  hard_stop_pct: 5
+  breakeven_trigger_pct: 8
+  trail_sma: 20
+  time_stop_days: 40
+costs:
+  brokerage_bps: 3
+  stt_bps: 10
+  exchange_gst_bps: 0.5
+  slippage_bps: 15

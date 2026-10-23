@@ -1,0 +1,29 @@
+# Pullbacks in leaders: stage-2 stocks with strong 3-month returns that are resting near their 20-day average.
+name: leaders_pullback
+version: v1
+label: "Leaders Pullback v1"
+family: pullback
+status: research
+universe:
+  filters: "close >= 50 and avg_turnover20_lacs >= 200 and turnover_lacs >= 1000 and history_sessions >= 252"
+regime_block: [Bear, Capitulation]
+entry:
+  when: "stage = 2 and ret_63d > 0.10 and close_vs_sma20_pct >= -0.03 and close_vs_sma20_pct <= 0.02 and rsi14 < 55"
+  rank_by: ["ret_63d desc"]
+  max_new_per_day: 3
+portfolio:
+  initial_capital: 10000000
+  max_positions: 10
+  risk_per_trade_pct: 1.0
+  max_position_pct: 8
+  max_sector_pct: 40
+exit:
+  hard_stop_pct: 5
+  breakeven_trigger_pct: 7
+  trail_sma: 50
+  time_stop_days: 45
+costs:
+  brokerage_bps: 3
+  stt_bps: 10
+  exchange_gst_bps: 0.5
+  slippage_bps: 10
