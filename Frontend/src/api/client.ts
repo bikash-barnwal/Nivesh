@@ -48,6 +48,12 @@ export async function send<T>(method: 'POST' | 'DELETE', path: string, params?: 
   return parse<T>(await authFetch(url(path, params), { method }))
 }
 
+export async function put<T>(path: string, body: unknown): Promise<T> {
+  return parse<T>(
+    await authFetch(path, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+  )
+}
+
 export async function post<T>(path: string, body: unknown): Promise<T> {
   return parse<T>(
     await authFetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),

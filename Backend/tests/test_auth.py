@@ -4,6 +4,7 @@ from starlette.requests import Request
 
 from nivesh.api import auth
 from nivesh.config import settings
+from tests.clerk_tokens import LISTED, Signer, new_key
 
 
 def _request(authorization: str | None = None) -> Request:
@@ -11,75 +12,65 @@ def _request(authorization: str | None = None) -> Request:
     return Request({"type": "http", "headers": headers})
 
 
-def test_auth_off_without_jwks_url(monkeypatch):
-    monkeypatch.setattr(settings, "clerk_jwks_url", "")
-    assert auth.require_user(_request()) is None
-
-
-def test_missing_token_is_401(monkeypatch):
-    monkeypatch.setattr(settings, "clerk_jwks_url", "https://example.clerk.accounts.dev/.well-known/jwks.json")
-    with pytest.raises(HTTPException) as err:
-        auth.require_user(_request())
-    assert err.value.status_code == 401
-
-
-def test_garbage_token_is_401(monkeypatch):
-    monkeypatch.setattr(settings, "clerk_jwks_url", "https://example.clerk.accounts.dev/.well-known/jwks.json")
-    with pytest.raises(HTTPException) as err:
-        auth.require_user(_request("Bearer not-a-jwt"))
-    assert err.value.status_code == 401
-
-
-ISSUER = "https://example.clerk.accounts.dev"
-
-
 @pytest.fixture
 def signer(monkeypatch):
-    import time
-    from types import SimpleNamespace
-
-    import jwt
-    from cryptography.hazmat.primitives.asymmetric import rsa
-
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    monkeypatch.setattr(settings, "clerk_jwks_url", f"{ISSUER}/.well-known/jwks.json")
-    monkeypatch.setattr(settings, "allowed_user_ids", ["user_ok"])
-    jwks = SimpleNamespace(get_signing_key_from_jwt=lambda _t: SimpleNamespace(key=key.public_key()))
-    monkeypatch.setattr(auth, "_jwks", lambda: jwks)
-
-    def sign(sub="user_ok", iss=ISSUER, exp_in=300, signing_key=key):
-        return jwt.encode({"sub": sub, "iss": iss, "exp": int(time.time()) + exp_in}, signing_key, algorithm="RS256")
-
-    sign.key_type = rsa
-    return sign
+    return Signer(monkeypatch)
 
 
-def test_allowed_user_passes(signer):
-    assert auth.require_user(_request(f"Bearer {signer()}")) == "user_ok"
-
-
-def test_unlisted_user_is_403_with_id(signer):
+def _status(signer_or_header) -> int:
     with pytest.raises(HTTPException) as err:
-        auth.require_user(_request(f"Bearer {signer(sub='user_other')}"))
-    assert err.value.status_code == 403
-    assert "user_other" in err.value.detail
+        auth.current_user(_request(signer_or_header))
+    return err.value.status_code
 
 
-def test_expired_wrong_issuer_and_forged_are_401(signer):
-    forged = signer.key_type.generate_private_key(public_exponent=65537, key_size=2048)
-    for token in (signer(exp_in=-120), signer(iss="https://evil.example"), signer(signing_key=forged)):
+def test_auth_off_is_one_local_user(monkeypatch):
+    monkeypatch.setattr(settings, "clerk_jwks_url", "")
+    assert auth.current_user(_request()) == auth.LOCAL_USER
+    assert auth.LOCAL_USER.is_local
+
+
+def test_missing_or_garbage_token_is_401(signer):
+    assert _status(None) == 401
+    assert _status("Bearer not-a-jwt") == 401
+
+
+def test_approved_by_clerk_role_or_by_the_allowed_list_and_all_equal(signer):
+    by_role = auth.current_user(_request(f"Bearer {signer.token('user_a', role='user')}"))
+    by_list = auth.current_user(_request(f"Bearer {signer.token(LISTED, role=None)}"))
+    assert by_role == auth.CurrentUser("user_a") and by_list == auth.CurrentUser(LISTED)
+    assert not by_role.is_local and not by_list.is_local
+
+
+def test_a_token_cannot_claim_to_be_the_local_user(signer):
+    assert _status(f"Bearer {signer.token('local', role='user')}") == 403
+
+
+def test_signed_up_but_not_approved_is_403_with_the_id(signer):
+    for role in (None, "", "admin", "superuser"):
         with pytest.raises(HTTPException) as err:
-            auth.require_user(_request(f"Bearer {token}"))
-        assert err.value.status_code == 401
+            auth.current_user(_request(f"Bearer {signer.token('user_new', role=role)}"))
+        assert err.value.status_code == 403 and "user_new" in err.value.detail
 
 
-def test_health_open_and_api_protected(signer):
-    from fastapi.testclient import TestClient
+def test_expired_wrong_issuer_forged_and_other_site_are_401(signer):
+    for token in (
+        signer.token(exp=1),
+        signer.token(iss="https://evil.example"),
+        signer.token(key=new_key()),
+        signer.token(azp="https://evil.example"),
+        signer.token(azp=None),
+    ):
+        assert _status(f"Bearer {token}") == 401
 
-    from nivesh.api.main import app
 
-    client = TestClient(app)
-    assert client.get("/health").status_code == 200
-    assert client.get("/api/data/freshness").status_code == 401
-    other = {"authorization": f"Bearer {signer(sub='user_other')}"}
-    assert client.get("/api/data/freshness", headers=other).status_code == 403
+def test_startup_refuses_half_configured_sign_in(monkeypatch):
+    monkeypatch.setattr(settings, "clerk_jwks_url", "")
+    auth.validate_auth_settings()  # off: nothing to check
+    monkeypatch.setattr(settings, "clerk_jwks_url", "http://example.clerk.accounts.dev/.well-known/jwks.json")
+    monkeypatch.setattr(settings, "authorized_parties", ["https://nivesh.example"])
+    with pytest.raises(RuntimeError, match="https"):
+        auth.validate_auth_settings()
+    monkeypatch.setattr(settings, "clerk_jwks_url", "https://example.clerk.accounts.dev/.well-known/jwks.json")
+    monkeypatch.setattr(settings, "authorized_parties", [])
+    with pytest.raises(RuntimeError, match="AUTHORIZED_PARTIES"):
+        auth.validate_auth_settings()

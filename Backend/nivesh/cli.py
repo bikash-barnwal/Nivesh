@@ -310,15 +310,29 @@ def demo_data(
     console.print(f"Serve it with:  NIVESH_DATA_DIR={base.resolve()} uv run nivesh serve")
 
 
+@app.command("claim-local")
+def claim_local(user_id: Annotated[str, typer.Argument(help="Clerk user id (user_...) to receive the data")]) -> None:
+    """Move watchlist, alerts, paper accounts and history made with sign-in off to a signed-in user."""
+    from nivesh.appdb import claim_local_rows
+
+    if not user_id.startswith("user_"):
+        raise typer.BadParameter("expected a Clerk user id such as user_2abc...")
+    moved = claim_local_rows(user_id)
+    console.print(f"Moved to {user_id}: " + ", ".join(f"{t} {n}" for t, n in moved.items()))
+    console.print("Backtest runs without an owner stay visible to admins.")
+
+
 @app.command()
 def serve(host: str = "127.0.0.1", port: int = 15000, reload: bool = False, scheduler: bool = False) -> None:
-    """Start the API (localhost only by default; there is no auth in v0.x)."""
+    """Start the API (localhost only by default; put it behind Caddy with sign-in on before exposing it)."""
     import os
 
     import uvicorn
 
-    if host not in {"127.0.0.1", "localhost"}:
-        console.print("[yellow]warning: v0.x has no auth; binding beyond localhost exposes the API[/]")
+    from nivesh.api.auth import auth_enabled
+
+    if host not in {"127.0.0.1", "localhost"} and not auth_enabled():
+        console.print("[yellow]warning: sign-in is off; binding beyond localhost exposes the API[/]")
     if scheduler:
         os.environ["NIVESH_SCHEDULER"] = "1"
     uvicorn.run("nivesh.api.main:app", host=host, port=port, reload=reload)

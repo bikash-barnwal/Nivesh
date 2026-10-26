@@ -174,23 +174,30 @@ def test_disabled_rules_and_unknown_kinds_are_ignored(tmp_path):
 def test_dispatch_dedupes_across_runs_and_isolates_channel_failures(tmp_path):
     item = alerts.AlertItem("k1", "regime_change", "WARNING", "Title", "Body", D2, rule_id=7)
     good, bad = Recorder("good"), Recorder("bad", fail=True)
-    first = alerts.dispatch([item], [bad, good])
+    first = alerts.dispatch([item], [bad, good], user_id="local")
     assert first == {"new": 1, "duplicates": 0, "sent": 1, "send_errors": 1}
     assert good.sent == [("Title", "Body")]
-    second = alerts.dispatch([item], [good])
+    second = alerts.dispatch([item], [good], user_id="local")
     assert second["duplicates"] == 1 and second["new"] == 0 and len(good.sent) == 1, "never re-sent"
-    [row] = appdb.list_alert_log()
+    [row] = appdb.list_alert_log(user_id="local")
     assert json.loads(row["delivered_to"]) == ["good"] and "channel down" in json.loads(row["errors"])[0]
     assert row["title"] == "Title" and row["as_of"] == str(D2) and row["rule_id"] == 7
 
 
 def test_run_alerts_with_no_rules_does_nothing_and_with_defaults_uses_the_inbox(tmp_path):
     engine = tiny(tmp_path, market_regime=regimes((D1, "A", "RISK ON"), (D2, "B", "DEFENSIVE")))
-    assert alerts.run_alerts(engine, channels=[])["evaluated"] == 0
-    appdb.add_alert("Regime changes", None, 0, kind="regime_change")
-    stats = alerts.run_alerts(engine, channels=[])
-    assert stats["new"] == 1 and appdb.list_alert_log()[0]["title"].startswith("Market regime")
-    assert alerts.run_alerts(engine, channels=[])["duplicates"] == 1
+    assert alerts.run_alerts(engine, channels=[], user_id="local")["evaluated"] == 0
+    appdb.add_alert("Regime changes", None, 0, user_id="local", kind="regime_change")
+    stats = alerts.run_alerts(engine, channels=[], user_id="local")
+    assert stats["new"] == 1 and appdb.list_alert_log(user_id="local")[0]["title"].startswith("Market regime")
+    assert alerts.run_alerts(engine, channels=[], user_id="local")["duplicates"] == 1
+    assert alerts.run_alerts(engine, channels=[], user_id="someone_else")["evaluated"] == 0, "rules are per user"
+
+
+def test_only_the_local_users_alerts_go_to_the_server_channels(monkeypatch):
+    monkeypatch.setattr(alerts, "configured_channels", lambda: [Recorder("telegram")])
+    assert [c.name for c in alerts.owner_channels("local")] == ["telegram"]
+    assert alerts.owner_channels("user_signed_in") == []
 
 
 # ---- channels ---------------------------------------------------------------------------------------------------

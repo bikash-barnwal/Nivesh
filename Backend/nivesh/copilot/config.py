@@ -43,6 +43,14 @@ class Target(_Model):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
+class ByokTarget(_Model):
+    model: str
+    temperature: float = 0.0
+    json_output: bool = Field(False, alias="json")
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
 class Limits(_Model):
     timeout_s: float = 90.0
     max_calls_per_day: int = 500
@@ -56,6 +64,8 @@ class LLMConfig(_Model):
     fallbacks: dict[str, list[Target]] = Field(default_factory=dict)
     limits: Limits = Field(default_factory=Limits)
     policy: dict[str, bool] = Field(default_factory=dict)
+    byok: dict[str, dict[str, ByokTarget]] = Field(default_factory=dict)
+    byok_models: dict[str, list[str]] = Field(default_factory=dict)
 
     def chain(self, role: str) -> list[Target]:
         if role not in self.roles:
@@ -67,6 +77,34 @@ class LLMConfig(_Model):
             for target in self.chain(role):
                 if target.provider not in self.providers:
                     raise LLMConfigError(f"role '{role}' uses unknown provider '{target.provider}'")
+        for name, roles in self.byok.items():
+            if name not in self.providers or self.providers[name].local:
+                raise LLMConfigError(f"byok provider '{name}' must be a hosted provider listed under providers")
+            unknown = set(roles) - set(self.roles)
+            if unknown:
+                raise LLMConfigError(f"byok provider '{name}' sets unknown roles {sorted(unknown)}")
+        for name in self.byok_models:
+            if name not in self.byok:
+                raise LLMConfigError(f"byok_models lists '{name}', which is not under byok")
+
+    def user_models(self, provider: str) -> list[str]:
+        """Models a user may pick for `provider`: the configured list, else the models its roles already use."""
+        return self.byok_models.get(provider) or sorted({t.model for t in self.byok.get(provider, {}).values()})
+
+    def for_user_key(self, provider: str, model: str | None = None) -> LLMConfig:
+        """Only the byok roles, all on `provider`, with no fallbacks: a user key never reaches the server's keys.
+        `model` (the user's pick, if allowed) replaces every role's model."""
+        if provider not in self.byok:
+            raise LLMConfigError(f"'{provider}' is not offered for your own key")
+        if model is not None and model not in self.user_models(provider):
+            model = None  # a pick that is no longer offered falls back to the defaults
+        roles = {
+            role: Target(provider=provider, model=model or t.model, temperature=t.temperature, json=t.json_output)
+            for role, t in self.byok[provider].items()
+        }
+        return LLMConfig(
+            providers={provider: self.providers[provider]}, roles=roles, limits=self.limits, policy=self.policy
+        )
 
 
 def load_config(path: Path | None = None) -> LLMConfig:
@@ -77,6 +115,16 @@ def load_config(path: Path | None = None) -> LLMConfig:
     if not source.exists():
         raise LLMConfigError(f"LLM config not found: {source}")
     raw = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
+    if source != (path or settings.llm_config) and settings.llm_config.exists():
+        # A machine override picks the server's models; own-key options it does not set come from llm.yaml.
+        base = yaml.safe_load(settings.llm_config.read_text(encoding="utf-8")) or {}
+        for key in ("byok", "byok_models"):
+            if key not in raw and key in base:
+                raw[key] = base[key]
+        providers = raw.setdefault("providers", {})
+        for name in raw.get("byok", {}):
+            if name not in providers and name in base.get("providers", {}):
+                providers[name] = base["providers"][name]
     try:
         config = LLMConfig.model_validate(raw)
     except ValueError as exc:

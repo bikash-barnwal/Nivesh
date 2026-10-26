@@ -13,6 +13,7 @@ import { RunPage } from './pages/RunPage'
 import { ScansPage } from './pages/ScansPage'
 import { SectorsPage } from './pages/SectorsPage'
 import { StockPage } from './pages/StockPage'
+import { OtherPage } from './pages/OtherPage'
 import { WatchlistPage } from './pages/WatchlistPage'
 
 export const queryClient = new QueryClient({
@@ -181,6 +182,8 @@ const paperDetailRoute = createRoute({
 
 const watchlistRoute = createRoute({ getParentRoute: () => rootRoute, path: '/watchlist', component: WatchlistPage })
 
+const otherRoute = createRoute({ getParentRoute: () => rootRoute, path: '/other', component: OtherPage })
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   marketRoute,
@@ -197,6 +200,7 @@ const routeTree = rootRoute.addChildren([
   paperRoute,
   paperDetailRoute,
   watchlistRoute,
+  otherRoute,
 ])
 
 export const router = createRouter({

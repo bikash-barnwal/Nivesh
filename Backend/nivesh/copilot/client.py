@@ -9,10 +9,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from nivesh.config import settings
 from nivesh.copilot.config import LLMConfig, LLMConfigError, Target, load_config
+from nivesh.userkeys import redact
 
 Message = dict[str, str]
 
@@ -83,9 +85,21 @@ def parse_json(text: str) -> dict[str, Any]:
 class OpenAICompatibleLLM:
     """Calls the configured chain for a role: primary model, then fallbacks, using the `openai` SDK."""
 
-    def __init__(self, config: LLMConfig | None = None, *, client_factory: Any = None, sleep: Any = time.sleep) -> None:
+    def __init__(
+        self,
+        config: LLMConfig | None = None,
+        *,
+        client_factory: Any = None,
+        sleep: Any = time.sleep,
+        log_path: Path | None = None,
+        secret: str | None = None,
+    ) -> None:
+        """`log_path` keeps a user's calls (and daily count) apart from the server's; `secret` is a user's own key,
+        which is removed from every error text this client writes or raises."""
         self.config = config or load_config()
         self._factory = client_factory or self._default_factory
+        self._log_file = log_path or settings.logs_dir / "llm_calls.jsonl"
+        self._secret = secret
         self._clients: dict[str, Any] = {}
         self._lock = threading.Lock()
         self._sleep = sleep
@@ -110,20 +124,16 @@ class OpenAICompatibleLLM:
                 self._clients[name] = self._factory(name)
             return self._clients[name]
 
-    @staticmethod
-    def _log_path():
-        return settings.logs_dir / "llm_calls.jsonl"
-
     def _count_calls_today(self) -> int:
-        path = self._log_path()
+        path = self._log_file
         if not path.exists():
             return 0
         today = datetime.now(UTC).date().isoformat()
         return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if f'"ts": "{today}' in line)
 
     def _log(self, record: dict[str, Any]) -> None:
-        settings.logs_dir.mkdir(parents=True, exist_ok=True)
-        with self._log_path().open("a", encoding="utf-8") as fh:
+        self._log_file.parent.mkdir(parents=True, exist_ok=True)
+        with self._log_file.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps({"ts": datetime.now(UTC).isoformat(), **record}) + "\n")
 
     # -- API ------------------------------------------------------------------------------------------------------
@@ -147,7 +157,8 @@ class OpenAICompatibleLLM:
             except LLMConfigError:
                 raise
             except Exception as exc:  # any provider error moves on to the next model in the chain
-                failures.append(f"{target.provider}/{target.model}: {type(exc).__name__}: {str(exc)[:200]}")
+                reason = redact(str(exc), self._secret)[:200]
+                failures.append(f"{target.provider}/{target.model}: {type(exc).__name__}: {reason}")
                 elapsed = round(time.perf_counter() - started, 3)
                 self._log(
                     {"role": role, "provider": target.provider, "model": target.model, "ok": False,

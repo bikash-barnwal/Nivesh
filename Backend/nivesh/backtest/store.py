@@ -2,6 +2,9 @@
 
 Layout per run: run.json (strategy, parameters, data window, timing), metrics.json, gates.json (optional),
 equity.parquet (date, equity, cash, invested, drawdown) and trades.parquet.
+
+Every run and job has an `owner` (a user id; "local" with sign-in off, and for runs saved before owners existed).
+Readers pass `owner=<user id>` to see only that user's runs, or `owner=None` (admins) to see all.
 """
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ def _json_default(o: Any) -> Any:
     raise TypeError(type(o))
 
 
-def save_run(result: Result, gates: dict[str, Any] | None, started: float) -> str:
+def save_run(result: Result, gates: dict[str, Any] | None, started: float, *, owner: str) -> str:
     strategy = result.strategy
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     digest = hashlib.sha1(strategy.model_dump_json().encode()).hexdigest()[:8]
@@ -69,6 +72,7 @@ def save_run(result: Result, gates: dict[str, Any] | None, started: float) -> st
     result.trades.write_parquet(out / "trades.parquet")
     run = {
         "run_id": run_id,
+        "owner": owner,
         "strategy_id": strategy.id,
         "strategy": strategy.model_dump(),
         "start": result.dates[0],
@@ -86,22 +90,34 @@ def save_run(result: Result, gates: dict[str, Any] | None, started: float) -> st
 
 
 def run_and_save(
-    strategy: Strategy, start: date | None = None, end: date | None = None, with_gates: bool = True
+    strategy: Strategy, start: date | None = None, end: date | None = None, with_gates: bool = True, *, owner: str
 ) -> str:
     started = time.perf_counter()
     panel = load_panel(strategy, None, start, end)
     result = simulate(strategy, panel)
     result.data_through = panel.dates[-1]
     gates = evaluate_gates(strategy, panel, result) if with_gates else None
-    return save_run(result, gates, started)
+    return save_run(result, gates, started, owner=owner)
 
 
 def _read(path: Path) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
-def load_run(run_id: str) -> dict[str, Any]:
+def _owner_of(run: dict[str, Any] | None) -> str:
+    return (run or {}).get("owner") or "local"
+
+
+def _owned_path(run_id: str, owner: str | None) -> Path:
+    """The run folder, or KeyError when it does not exist or belongs to someone else (same error: ids leak nothing)."""
     path = _run_path(run_id)
+    if owner is not None and _owner_of(_read(path / "run.json")) != owner:
+        raise KeyError(run_id)
+    return path
+
+
+def load_run(run_id: str, *, owner: str | None) -> dict[str, Any]:
+    path = _owned_path(run_id, owner)
     return {
         "run": _read(path / "run.json"),
         "metrics": _read(path / "metrics.json"),
@@ -109,28 +125,29 @@ def load_run(run_id: str) -> dict[str, Any]:
     }
 
 
-def load_equity(run_id: str) -> pl.DataFrame:
-    return pl.read_parquet(_run_path(run_id) / "equity.parquet")
+def load_equity(run_id: str, *, owner: str | None) -> pl.DataFrame:
+    return pl.read_parquet(_owned_path(run_id, owner) / "equity.parquet")
 
 
-def load_trades(run_id: str) -> pl.DataFrame:
-    return pl.read_parquet(_run_path(run_id) / "trades.parquet")
+def load_trades(run_id: str, *, owner: str | None) -> pl.DataFrame:
+    return pl.read_parquet(_owned_path(run_id, owner) / "trades.parquet")
 
 
-def list_runs() -> list[dict[str, Any]]:
-    """All saved runs, newest first, as light summaries."""
+def list_runs(*, owner: str | None) -> list[dict[str, Any]]:
+    """Saved runs of `owner` (all runs for None), newest first, as light summaries."""
     root = runs_dir()
     if not root.exists():
         return []
     out = []
     for path in root.iterdir():
         run, metrics, gates = _read(path / "run.json"), _read(path / "metrics.json"), _read(path / "gates.json")
-        if not run or not metrics:
+        if not run or not metrics or (owner is not None and _owner_of(run) != owner):
             continue
         passed, total = count_passed(gates) if gates else (None, None)
         out.append(
             {
                 "run_id": run["run_id"],
+                "owner": _owner_of(run),
                 "strategy_id": run["strategy_id"],
                 "status": run["strategy"].get("status"),
                 "label": run["strategy"].get("label") or run["strategy_id"],
@@ -150,10 +167,10 @@ def list_runs() -> list[dict[str, Any]]:
     return out
 
 
-def latest_per_strategy() -> list[dict[str, Any]]:
+def latest_per_strategy(*, owner: str | None) -> list[dict[str, Any]]:
     seen: set[str] = set()
     latest = []
-    for row in list_runs():  # newest first
+    for row in list_runs(owner=owner):  # newest first
         if row["strategy_id"] not in seen:
             seen.add(row["strategy_id"])
             latest.append(row)
@@ -161,16 +178,29 @@ def latest_per_strategy() -> list[dict[str, Any]]:
 
 
 # --- background execution -------------------------------------------------------------------------------------------
+# One worker: runs queue one after another. Each user may have one queued or running job, and the queue is capped,
+# so nobody can fill the server with work.
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="backtest")
 _jobs: dict[str, dict[str, Any]] = {}
 _lock = threading.Lock()
+MAX_QUEUED_JOBS = 5
 
 
-def submit(strategy: Strategy, start: date | None, end: date | None, with_gates: bool) -> str:
+class Busy(RuntimeError):
+    """The user already has a backtest queued or running, or the queue is full."""
+
+
+def submit(strategy: Strategy, start: date | None, end: date | None, with_gates: bool, *, owner: str) -> str:
     job_id = hashlib.sha1(f"{strategy.id}{time.time_ns()}".encode()).hexdigest()[:12]
     with _lock:
+        running = [j for j in _jobs.values() if j["status"] == "running"]
+        if any(j["owner"] == owner for j in running):
+            raise Busy("you already have a backtest running; wait for it to finish")
+        if len(running) >= MAX_QUEUED_JOBS:
+            raise Busy("the backtest queue is full; try again in a few minutes")
         _jobs[job_id] = {
             "job_id": job_id,
+            "owner": owner,
             "strategy_id": strategy.id,
             "status": "running",
             "run_id": None,
@@ -179,7 +209,7 @@ def submit(strategy: Strategy, start: date | None, end: date | None, with_gates:
 
     def work() -> None:
         try:
-            run_id = run_and_save(strategy, start, end, with_gates)
+            run_id = run_and_save(strategy, start, end, with_gates, owner=owner)
             update = {"status": "done", "run_id": run_id}
         except Exception as exc:  # reported to the client through the job record
             update = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
@@ -190,7 +220,9 @@ def submit(strategy: Strategy, start: date | None, end: date | None, with_gates:
     return job_id
 
 
-def job_status(job_id: str) -> dict[str, Any] | None:
+def job_status(job_id: str, *, owner: str | None) -> dict[str, Any] | None:
     with _lock:
         job = _jobs.get(job_id)
-        return dict(job) if job else None
+        if job is None or (owner is not None and job["owner"] != owner):
+            return None
+        return dict(job)

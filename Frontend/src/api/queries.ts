@@ -5,6 +5,7 @@ import type {
   AnalogueResponse,
   Brief,
   CopilotModels,
+  Me,
   EngineCatalog,
   EngineRow,
   EquityData,
@@ -162,6 +163,14 @@ export const q = {
       queryFn: ({ signal }) =>
         get<Envelope<FeatureRow[]>>(`/api/stocks/${symbol}/features`, { as_of: asOf, limit }, signal),
       staleTime: stale(asOf),
+    }),
+
+  me: () =>
+    queryOptions({
+      queryKey: ['me'],
+      queryFn: ({ signal }) => get<Me>('/api/me', undefined, signal),
+      staleTime: 60_000,
+      retry: false,
     }),
 
   copilotModels: () =>

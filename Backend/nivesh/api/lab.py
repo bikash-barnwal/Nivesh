@@ -10,6 +10,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from nivesh.api.auth import User
 from nivesh.api.common import Envelope, envelope
 from nivesh.backtest import store
 from nivesh.backtest.spec import get_strategy, list_strategies, strategies_dir
@@ -47,16 +48,16 @@ def _strategy_or_404(strategy_id: str):
         raise HTTPException(status_code=404, detail=f"unknown strategy '{strategy_id}'") from exc
 
 
-def _run_or_404(run_id: str) -> dict[str, Any]:
+def _run_or_404(run_id: str, user: User) -> dict[str, Any]:
     try:
-        return store.load_run(run_id)
+        return store.load_run(run_id, owner=user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"unknown run '{run_id}'") from exc
 
 
 @router.get("/strategies", response_model=Envelope)
-def strategies() -> dict[str, Any]:
-    latest = {r["strategy_id"]: r for r in store.latest_per_strategy()}
+def strategies(user: User) -> dict[str, Any]:
+    latest = {r["strategy_id"]: r for r in store.latest_per_strategy(owner=user.id)}
     rows = []
     for s in list_strategies():
         rows.append(
@@ -92,42 +93,45 @@ def strategy_detail(strategy_id: str) -> dict[str, Any]:
 
 
 @router.post("/backtests", response_model=Envelope)
-def start_backtest(request: BacktestRequest) -> dict[str, Any]:
+def start_backtest(request: BacktestRequest, user: User) -> dict[str, Any]:
     strategy = _strategy_or_404(request.strategy_id)
-    job_id = store.submit(strategy, request.start, request.end, request.gates)
+    try:
+        job_id = store.submit(strategy, request.start, request.end, request.gates, owner=user.id)
+    except store.Busy as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     return _env({"job_id": job_id, "status": "running"}, "backtest", "queued")
 
 
 @router.get("/backtests/jobs/{job_id}", response_model=Envelope)
-def backtest_job(job_id: str) -> dict[str, Any]:
-    job = store.job_status(job_id)
+def backtest_job(job_id: str, user: User) -> dict[str, Any]:
+    job = store.job_status(job_id, owner=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="unknown job")
     return _env(job, "backtest", "job status")
 
 
 @router.get("/backtests", response_model=Envelope)
-def backtests() -> dict[str, Any]:
-    return _env(store.list_runs(), "data/backtests", "all saved runs, newest first")
+def backtests(user: User) -> dict[str, Any]:
+    return _env(store.list_runs(owner=user.id), "data/backtests", "saved runs, newest first")
 
 
 @router.get("/leaderboard", response_model=Envelope)
-def leaderboard() -> dict[str, Any]:
-    rows = store.latest_per_strategy()
+def leaderboard(user: User) -> dict[str, Any]:
+    rows = store.latest_per_strategy(owner=user.id)
     rows.sort(key=lambda r: (r["calmar"] is None, -(r["calmar"] or 0)))
     return _env(rows, "data/backtests", "latest run per strategy, ranked by Calmar")
 
 
 @router.get("/backtests/{run_id}", response_model=Envelope)
-def backtest_run(run_id: str) -> dict[str, Any]:
-    loaded = _run_or_404(run_id)
+def backtest_run(run_id: str, user: User) -> dict[str, Any]:
+    loaded = _run_or_404(run_id, user)
     return _env(loaded, "data/backtests", "saved run", as_of=date.fromisoformat(loaded["run"]["end"]))
 
 
 @router.get("/backtests/{run_id}/equity", response_model=Envelope)
-def backtest_equity(run_id: str) -> dict[str, Any]:
-    loaded = _run_or_404(run_id)
-    frame = store.load_equity(run_id)
+def backtest_equity(run_id: str, user: User) -> dict[str, Any]:
+    loaded = _run_or_404(run_id, user)
+    frame = store.load_equity(run_id, owner=user.id)
     if frame.height > MAX_EQUITY_POINTS:
         step = -(-frame.height // MAX_EQUITY_POINTS)
         frame = frame.gather_every(step)  # keeps shape for charting; metrics come from the full series
@@ -153,6 +157,7 @@ def backtest_equity(run_id: str) -> dict[str, Any]:
 @router.get("/backtests/{run_id}/trades", response_model=Envelope)
 def backtest_trades(
     run_id: str,
+    user: User,
     year: Annotated[int | None, Query()] = None,
     exit_reason: Annotated[str | None, Query()] = None,
     sector: Annotated[str | None, Query()] = None,
@@ -161,8 +166,8 @@ def backtest_trades(
     limit: Annotated[int, Query(ge=1, le=2000)] = 500,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict[str, Any]:
-    loaded = _run_or_404(run_id)
-    trades = store.load_trades(run_id)
+    loaded = _run_or_404(run_id, user)
+    trades = store.load_trades(run_id, owner=user.id)
     if year is not None:
         trades = trades.filter(pl.col("entry_date").dt.year() == year)
     if exit_reason:
@@ -207,9 +212,9 @@ def _explain(trade: dict[str, Any], strategy: dict[str, Any], signal_date: date 
 
 
 @router.get("/backtests/{run_id}/trades/{trade_id}", response_model=Envelope)
-def backtest_trade(run_id: str, trade_id: int) -> dict[str, Any]:
-    loaded = _run_or_404(run_id)
-    trades = store.load_trades(run_id).filter(pl.col("trade_id") == trade_id)
+def backtest_trade(run_id: str, trade_id: int, user: User) -> dict[str, Any]:
+    loaded = _run_or_404(run_id, user)
+    trades = store.load_trades(run_id, owner=user.id).filter(pl.col("trade_id") == trade_id)
     if trades.is_empty():
         raise HTTPException(status_code=404, detail=f"unknown trade {trade_id}")
     trade = trades.row(0, named=True)

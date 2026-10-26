@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from nivesh import ratelimit
+from nivesh.api.auth import User
 from nivesh.api.common import Envelope, history_snapshot, state_snapshot
 from nivesh.appdb import add_watch, list_watch, remove_watch
 from nivesh.audit import record
@@ -21,7 +24,7 @@ router = APIRouter(prefix="/api", tags=["intelligence"])
 
 
 class SqlRequest(BaseModel):
-    sql: str
+    sql: str = Field(min_length=1, max_length=4000)
 
 
 def _snapshot(
@@ -52,7 +55,9 @@ def catalog() -> dict[str, Any]:
 
 
 @router.post("/copilot/sql")
-def copilot_sql(request: SqlRequest) -> dict[str, Any]:
+def copilot_sql(request: SqlRequest, user: User) -> dict[str, Any]:
+    if not user.is_local and not ratelimit.allow(user.id, "sql", settings.user_sql_per_minute, 60):
+        raise HTTPException(status_code=429, detail=f"Too many queries (max {settings.user_sql_per_minute} a minute).")
     engine = get_engine()
     try:
         safe_sql = validate_readonly_sql(request.sql, set(engine.views()))
@@ -82,30 +87,45 @@ def brief(as_of: Annotated[date | None, Query()] = None) -> dict[str, Any]:
     return {**overview(as_of), "data": {"overview": overview(as_of)["data"], "events": events(as_of)["data"]}}
 
 
+_SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9&_.-]{0,19}$")
+MAX_WATCHLIST = 200
+
+
+def _symbol_or_422(symbol: str) -> str:
+    symbol = symbol.upper()
+    if not _SYMBOL.match(symbol):
+        raise HTTPException(status_code=422, detail="not a valid NSE symbol")
+    return symbol
+
+
 @router.get("/watchlist", response_model=Envelope)
-def watchlist() -> dict[str, Any]:
+def watchlist(user: User) -> dict[str, Any]:
     through = get_engine().data_through()
     return {
         "as_of": through,
         "data_through": through,
         "version": 1,
-        "data": list_watch(),
-        "provenance": {"source": "appdb.watchlist", "calculation": "local watchlist"},
+        "data": list_watch(user_id=user.id),
+        "provenance": {"source": "appdb.watchlist", "calculation": "your watchlist"},
     }
 
 
 @router.post("/watchlist/{symbol}")
-def watch_add(symbol: str) -> dict[str, Any]:
-    result = add_watch(symbol)
-    record("watchlist.add", {"symbol": symbol.upper()})
+def watch_add(symbol: str, user: User) -> dict[str, Any]:
+    symbol = _symbol_or_422(symbol)
+    if len(list_watch(user_id=user.id)) >= MAX_WATCHLIST:
+        raise HTTPException(status_code=409, detail=f"watchlist is full ({MAX_WATCHLIST} symbols)")
+    result = add_watch(symbol, user_id=user.id)
+    record("watchlist.add", {"symbol": symbol}, user_id=user.id)
     return result
 
 
 @router.delete("/watchlist/{symbol}")
-def watch_delete(symbol: str) -> dict[str, str]:
-    remove_watch(symbol)
-    record("watchlist.remove", {"symbol": symbol.upper()})
-    return {"status": "removed", "symbol": symbol.upper()}
+def watch_delete(symbol: str, user: User) -> dict[str, str]:
+    symbol = _symbol_or_422(symbol)
+    remove_watch(symbol, user_id=user.id)
+    record("watchlist.remove", {"symbol": symbol}, user_id=user.id)
+    return {"status": "removed", "symbol": symbol}
 
 
 @router.get("/scans", response_model=Envelope)

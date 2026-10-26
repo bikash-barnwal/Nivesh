@@ -298,8 +298,26 @@ export type ModelRole = {
   local: boolean
   key_present: boolean
   key_env: string | null
+  /** True when this role runs on the user's own key (or would, once added). */
+  own_key?: boolean
 }
 export type CopilotModels = { roles: ModelRole[]; policy?: Record<string, boolean>; error?: string }
+
+// ---- signed-in user ---------------------------------------------------------------------------------------------
+export type SavedKey = { provider: string; last4: string; created_at: string; last_tested_at: string | null; last_status: string | null }
+export type UserSettings = { copilot_model?: string | null }
+export type Me = {
+  id: string
+  copilot: {
+    keys_enabled: boolean
+    providers: string[]
+    keys: SavedKey[]
+    uses_server_keys: boolean
+    /** Models each provider offers for your own key. */
+    models: Record<string, string[]>
+  }
+  settings: UserSettings
+}
 
 // ---- alerts, brief, paper trading -------------------------------------------------------------------------------
 export type AlertRule = {

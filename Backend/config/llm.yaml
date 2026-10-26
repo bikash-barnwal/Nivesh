@@ -39,6 +39,20 @@ fallbacks:
   synth:
     - {provider: openrouter, model: google/gemini-2.5-flash}
 
+# Bring your own key: what a user's own key runs, per Copilot role. Only providers listed here can be chosen in
+# the "Copilot keys" dialog; the first one is the default. A user key never falls back to the server's keys.
+byok:
+  gemini:
+    router: {model: gemini-2.5-flash, temperature: 0,   json: true}
+    sql:    {model: gemini-2.5-flash, temperature: 0,   json: true}
+    repair: {model: gemini-2.5-flash, temperature: 0,   json: true}
+    synth:  {model: gemini-2.5-flash, temperature: 0.2, json: false}
+
+# Models a user may pick for their own key (Other page). The pick replaces the model of every role above for that
+# user; temperature and JSON mode stay. Model ids drift: confirm with `uv run nivesh llm-ping`.
+byok_models:
+  gemini: [gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite]
+
 limits:
   timeout_s: 90
   max_calls_per_day: 500

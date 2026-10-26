@@ -13,6 +13,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from nivesh.api.auth import User
 from nivesh.api.common import Envelope, envelope
 from nivesh.appdb import create_paper_account, delete_paper_account, get_paper_account, list_paper_accounts
 from nivesh.backtest.engine import BacktestError, Result, load_panel, simulate
@@ -80,16 +81,21 @@ def _summary(account: dict[str, Any], result: Result) -> dict[str, Any]:
     }
 
 
-def _account_or_404(account_id: int) -> dict[str, Any]:
-    account = get_paper_account(account_id)
+MAX_ACCOUNTS = 20
+
+
+def _account_or_404(account_id: int, user: User) -> dict[str, Any]:
+    account = get_paper_account(account_id, user_id=user.id)
     if account is None:
         raise HTTPException(status_code=404, detail=f"unknown paper account {account_id}")
     return account
 
 
 @router.post("/paper", response_model=Envelope)
-def create_account(request: PaperCreate) -> dict[str, Any]:
+def create_account(request: PaperCreate, user: User) -> dict[str, Any]:
     strategy = _strategy_or_404(request.strategy_id)
+    if len(list_paper_accounts(user_id=user.id)) >= MAX_ACCOUNTS:
+        raise HTTPException(status_code=409, detail=f"too many paper accounts (max {MAX_ACCOUNTS})")
     through = get_engine().data_through()
     if through is None:
         raise HTTPException(status_code=409, detail="no market data is loaded")
@@ -98,14 +104,14 @@ def create_account(request: PaperCreate) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=f"start_date is after the last loaded session ({through})")
     capital = request.capital or strategy.portfolio.initial_capital
     name = request.name or f"{strategy.label or strategy.id} from {start}"
-    account = create_paper_account(name, strategy.id, start.isoformat(), capital)
+    account = create_paper_account(name, strategy.id, start.isoformat(), capital, user_id=user.id)
     return _env(account, "appdb.paper_accounts", "paper account created")
 
 
 @router.get("/paper", response_model=Envelope)
-def accounts() -> dict[str, Any]:
+def accounts(user: User) -> dict[str, Any]:
     rows = []
-    for account in list_paper_accounts():
+    for account in list_paper_accounts(user_id=user.id):
         try:
             rows.append(_summary(account, _forward(account)))
         except HTTPException as exc:
@@ -114,8 +120,8 @@ def accounts() -> dict[str, Any]:
 
 
 @router.get("/paper/{account_id}", response_model=Envelope)
-def account_detail(account_id: int) -> dict[str, Any]:
-    account = _account_or_404(account_id)
+def account_detail(account_id: int, user: User) -> dict[str, Any]:
+    account = _account_or_404(account_id, user)
     result = _forward(account)
     curve = []
     running_peak = result.equity[0]
@@ -144,9 +150,9 @@ def account_detail(account_id: int) -> dict[str, Any]:
 
 
 @router.delete("/paper/{account_id}")
-def remove_account(account_id: int) -> dict[str, Any]:
-    _account_or_404(account_id)
-    delete_paper_account(account_id)
+def remove_account(account_id: int, user: User) -> dict[str, Any]:
+    _account_or_404(account_id, user)
+    delete_paper_account(account_id, user_id=user.id)
     for key in [k for k in _CACHE if k[0] == account_id]:
         _CACHE.pop(key, None)
     return {"status": "deleted", "id": account_id}

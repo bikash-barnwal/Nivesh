@@ -11,7 +11,8 @@ from sqlglot import exp
 from nivesh.evidence import Evidence
 
 _FORBIDDEN = re.compile(
-    r"\b(?:COPY|ATTACH|PRAGMA|INSTALL|LOAD|SET)\b|read_csv|read_text|glob\s*\(|information_schema|duckdb_",
+    r"\b(?:COPY|ATTACH|DETACH|EXPORT|IMPORT|PRAGMA|INSTALL|LOAD|SET|RESET|CALL)\b"
+    r"|\bread_\w+|\bpragma_\w+|glob\s*\(|information_schema|duckdb_|current_setting|getenv|sniff_csv|which_secret",
     re.IGNORECASE,
 )
 

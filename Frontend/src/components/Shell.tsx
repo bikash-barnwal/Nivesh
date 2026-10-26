@@ -1,7 +1,8 @@
-import { UserButton } from '@clerk/react'
+import { SignOutButton, UserButton } from '@clerk/react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { ApiError } from '../api/client'
 import { q } from '../api/queries'
 import { useAsOf, useSetAsOf } from '../lib/asof'
 import { num } from '../lib/format'
@@ -20,6 +21,7 @@ const NAV = [
   { to: '/paper', label: 'Paper' },
   { to: '/alerts', label: 'Alerts' },
   { to: '/watchlist', label: 'Watchlist' },
+  { to: '/other', label: 'Other' },
 ] as const
 
 function StockSearch() {
@@ -126,7 +128,25 @@ function AsOfBar() {
   )
 }
 
+/** Signed in with Clerk, but the owner has not given this account a role yet. */
+function AccessPending({ detail }: { detail: string }) {
+  return (
+    <div className="mx-auto mt-16 max-w-lg space-y-4 rounded border border-line bg-panel p-6 text-sm">
+      <h1 className="text-lg font-semibold">Access pending</h1>
+      <p className="text-muted">You are signed in, but this account has not been approved yet.</p>
+      <p className="rounded bg-panel-2 px-3 py-2 font-mono text-xs">{detail}</p>
+      <p className="text-muted">Send this message to the owner. Once approved, sign out and sign in again.</p>
+      <SignOutButton>
+        <button type="button" className="rounded border border-line px-3 py-1.5 hover:bg-panel-2">Sign out</button>
+      </SignOutButton>
+    </div>
+  )
+}
+
 export function Shell() {
+  const me = useQuery({ ...q.me(), enabled: clerkOn })
+  const pending = me.error instanceof ApiError && me.error.status === 403 ? me.error.message : null
+  if (pending) return <AccessPending detail={pending} />
   return (
     <div className="flex min-h-full flex-col">
       <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-panel px-4 py-2.5">

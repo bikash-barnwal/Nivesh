@@ -7,6 +7,7 @@ dedupe key so the same thing is never delivered twice. Wording is templated from
 from __future__ import annotations
 
 import json
+import logging
 import os
 import smtplib
 from dataclasses import dataclass
@@ -22,6 +23,8 @@ from nivesh.backtest.engine import BacktestError, load_panel
 from nivesh.backtest.spec import get_strategy
 from nivesh.data.engine import Engine
 from nivesh.stock_panel import lifecycle
+
+log = logging.getLogger(__name__)
 
 SEVERITY_RANK = {"CRITICAL": 0, "WARNING": 1, "WATCH": 2, "INFO": 3}
 KINDS = ("regime_change", "market_event", "scan_entry", "watchlist", "strategy_signal")
@@ -302,12 +305,22 @@ def configured_channels() -> list[Channel]:
     return channels
 
 
-def dispatch(items: list[AlertItem], channels: list[Channel], path: Path | None = None) -> dict[str, int]:
+def dispatch(
+    items: list[AlertItem], channels: list[Channel], path: Path | None = None, *, user_id: str
+) -> dict[str, int]:
     """Log each alert once (the inbox) and send new ones to every channel; one failing channel never blocks the rest."""
     stats = {"new": 0, "duplicates": 0, "sent": 0, "send_errors": 0}
     for item in items:
         log_id = appdb.log_alert(
-            item.key, item.rule_id, item.kind, item.severity, item.title, item.body, item.as_of.isoformat(), path
+            item.key,
+            item.rule_id,
+            item.kind,
+            item.severity,
+            item.title,
+            item.body,
+            item.as_of.isoformat(),
+            path,
+            user_id=user_id,
         )
         if log_id is None:
             stats["duplicates"] += 1
@@ -322,16 +335,38 @@ def dispatch(items: list[AlertItem], channels: list[Channel], path: Path | None 
             except Exception as exc:  # recorded on the alert, never raised into the pipeline
                 errors.append(f"{channel.name}: {type(exc).__name__}: {str(exc)[:120]}")
                 stats["send_errors"] += 1
-        appdb.finish_alert(log_id, delivered, errors, path)
+        appdb.finish_alert(log_id, delivered, errors, path, user_id=user_id)
     return stats
 
 
-def run_alerts(engine: Engine, channels: list[Channel] | None = None, path: Path | None = None) -> dict[str, Any]:
-    rules = appdb.list_alerts(path)
-    watch = [w["symbol"] for w in appdb.list_watch(path)]
+def owner_channels(user_id: str) -> list[Channel]:
+    """The Telegram/email in the server env belong to the machine's owner: only the local user (sign-in off) uses
+    them. Signed-in users get the in-app inbox."""
+    return configured_channels() if user_id == "local" else []
+
+
+def run_alerts(
+    engine: Engine, channels: list[Channel] | None = None, path: Path | None = None, *, user_id: str
+) -> dict[str, Any]:
+    """Evaluate one user's rules against their watchlist; everyone gets the in-app inbox."""
+    rules = appdb.list_alerts(path, user_id=user_id)
+    watch = [w["symbol"] for w in appdb.list_watch(path, user_id=user_id)]
     items = evaluate(engine, rules, watch)
-    stats = dispatch(items, configured_channels() if channels is None else channels, path)
+    stats = dispatch(items, owner_channels(user_id) if channels is None else channels, path, user_id=user_id)
     return {"rules": len(rules), "evaluated": len(items), **stats}
+
+
+def run_all_alerts(engine: Engine, path: Path | None = None) -> dict[str, Any]:
+    """The daily run: every user with rules, one at a time; one user's failure never blocks the others."""
+    out: dict[str, Any] = {"users": 0, "new": 0, "errors": 0}
+    for user_id in appdb.list_alert_users(path):
+        out["users"] += 1
+        try:
+            out["new"] += run_alerts(engine, path=path, user_id=user_id)["new"]
+        except Exception:  # logged per user, never raised into the pipeline
+            log.exception("alerts failed for user %s", user_id)
+            out["errors"] += 1
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ daily brief

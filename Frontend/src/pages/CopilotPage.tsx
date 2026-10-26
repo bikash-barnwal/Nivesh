@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { q } from '../api/queries'
+import { Link } from '@tanstack/react-router'
 import { Badge, Card } from '../components/ui'
 import { type Evidence, type Turn, useCopilot } from '../lib/useCopilot'
 
@@ -174,12 +175,21 @@ export function CopilotPage() {
   }
 
   const roles = models.data?.data.roles ?? []
-  const missing = [...new Set(roles.filter((r) => r.position === 'primary' && !r.local && !r.key_present).map((r) => r.key_env))]
+  const needsOwnKey = roles.some((r) => r.own_key && !r.key_present)
+  const missing = [...new Set(roles.filter((r) => r.position === 'primary' && !r.local && !r.key_present && !r.own_key).map((r) => r.key_env))]
   const current = turns.find((t) => t.id === selected) ?? turns[turns.length - 1]
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_440px]">
       <Card title="Copilot" hint="(answers come from SQL the database ran, never from model memory)" right={turns.length > 0 && <button type="button" onClick={clear} className="text-xs text-muted hover:text-text">Clear</button>}>
+        {needsOwnKey && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded border border-warn/50 bg-warn/10 px-3 py-2 text-sm text-warn">
+            <span>The Copilot runs on your own model key. Add a free Gemini key to start asking.</span>
+            <Link to="/other" hash="ai" className="rounded bg-accent px-3 py-1 text-xs font-semibold text-bg">
+              Add your key
+            </Link>
+          </div>
+        )}
         {missing.length > 0 && (
           <p className="mb-3 rounded border border-warn/50 bg-warn/10 px-3 py-2 text-sm text-warn">
             No API key found for: {missing.join(', ')}. Add it to <code>Backend/.env</code>, then restart the API. Run <code>uv run nivesh llm-ping</code> to check.

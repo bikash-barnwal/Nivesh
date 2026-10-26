@@ -10,7 +10,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from nivesh.alerts import run_alerts
+from nivesh.alerts import run_all_alerts
 from nivesh.analytics import AnalyticsError, run_analytics
 from nivesh.config import settings
 from nivesh.data import build, nse, quality, reference
@@ -67,7 +67,7 @@ def run_eod_pipeline(start: date | None = None, end: date | None = None) -> dict
         engine = get_engine()
         engine.refresh()
         try:
-            record["alerts"] = run_alerts(engine)
+            record["alerts"] = run_all_alerts(engine)
         except Exception as exc:  # alerting must never fail the data pipeline
             record["alerts"] = {"error": f"{type(exc).__name__}: {exc}"}
         record["status"] = "ok"

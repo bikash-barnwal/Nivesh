@@ -10,12 +10,15 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from nivesh import appdb
-from nivesh.alerts import DEFAULT_RULES, KINDS, SEVERITY_RANK, build_brief, configured_channels, run_alerts
+from nivesh.alerts import DEFAULT_RULES, KINDS, SEVERITY_RANK, build_brief, owner_channels, run_alerts
+from nivesh.api.auth import User
 from nivesh.api.common import Envelope, envelope
 from nivesh.backtest.spec import list_strategies
 from nivesh.data.engine import get_engine
 
 router = APIRouter(prefix="/api", tags=["alerts"])
+
+MAX_RULES = 50
 
 Kind = Literal["regime_change", "market_event", "scan_entry", "watchlist", "strategy_signal"]
 
@@ -51,13 +54,20 @@ def _public(rule: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/alerts", response_model=Envelope)
-def rules() -> dict[str, Any]:
-    channels = ["in-app inbox", *[c.name for c in configured_channels()]]
-    return _env([_public(r) for r in appdb.list_alerts()], "local alert rules", kinds=list(KINDS), channels=channels)
+def rules(user: User) -> dict[str, Any]:
+    channels = ["in-app inbox", *[c.name for c in owner_channels(user.id)]]
+    rows = [_public(r) for r in appdb.list_alerts(user_id=user.id)]
+    return _env(rows, "your alert rules", kinds=list(KINDS), channels=channels)
+
+
+def _room_for(user: User, count: int) -> None:
+    if len(appdb.list_alerts(user_id=user.id)) + count > MAX_RULES:
+        raise HTTPException(status_code=409, detail=f"too many alert rules (max {MAX_RULES})")
 
 
 @router.post("/alerts", response_model=Envelope)
-def create_rule(request: AlertRequest) -> dict[str, Any]:
+def create_rule(request: AlertRequest, user: User) -> dict[str, Any]:
+    _room_for(user, 1)
     if request.kind == "strategy_signal" and request.strategy_id not in {s.id for s in list_strategies()}:
         raise HTTPException(status_code=404, detail=f"unknown strategy '{request.strategy_id}'")
     params: dict[str, Any] = {}
@@ -65,37 +75,40 @@ def create_rule(request: AlertRequest) -> dict[str, Any]:
         params["severity_min"] = (request.severity_min or "WARNING").upper()
     if request.kind == "strategy_signal":
         params["strategy_id"] = request.strategy_id
-    row = appdb.add_alert(request.name, request.scan_id, request.min_score, kind=request.kind, params=params)
+    row = appdb.add_alert(
+        request.name, request.scan_id, request.min_score, user_id=user.id, kind=request.kind, params=params
+    )
     return _env(_public(row), "alert rule created")
 
 
 @router.post("/alerts/defaults", response_model=Envelope)
-def add_default_rules() -> dict[str, Any]:
-    existing = {(r["kind"], r["name"]) for r in appdb.list_alerts()}
+def add_default_rules(user: User) -> dict[str, Any]:
+    existing = {(r["kind"], r["name"]) for r in appdb.list_alerts(user_id=user.id)}
+    missing = [d for d in DEFAULT_RULES if (d["kind"], d["name"]) not in existing]
+    _room_for(user, len(missing))
     created = [
-        _public(appdb.add_alert(d["name"], None, 0, kind=d["kind"], params=d["params"]))
-        for d in DEFAULT_RULES
-        if (d["kind"], d["name"]) not in existing
+        _public(appdb.add_alert(d["name"], None, 0, user_id=user.id, kind=d["kind"], params=d["params"]))
+        for d in missing
     ]
     return _env(created, "default alert rules added (existing ones are left alone)")
 
 
 @router.delete("/alerts/{rule_id}")
-def delete_rule(rule_id: int) -> dict[str, Any]:
-    if not appdb.delete_alert(rule_id):
+def delete_rule(rule_id: int, user: User) -> dict[str, Any]:
+    if not appdb.delete_alert(rule_id, user_id=user.id):
         raise HTTPException(status_code=404, detail=f"unknown alert rule {rule_id}")
     return {"status": "deleted", "id": rule_id}
 
 
 @router.post("/alerts/run", response_model=Envelope)
-def run_now() -> dict[str, Any]:
-    """Evaluate every rule against the latest session now (the daily pipeline does this automatically)."""
-    return _env(run_alerts(get_engine()), "rules evaluated; duplicates are never re-sent")
+def run_now(user: User) -> dict[str, Any]:
+    """Evaluate your rules against the latest session now (the daily pipeline does this automatically)."""
+    return _env(run_alerts(get_engine(), user_id=user.id), "rules evaluated; duplicates are never re-sent")
 
 
 @router.get("/alerts/inbox", response_model=Envelope)
-def inbox(limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict[str, Any]:
-    rows = appdb.list_alert_log(limit)
+def inbox(user: User, limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict[str, Any]:
+    rows = appdb.list_alert_log(limit, user_id=user.id)
     for row in rows:
         row["delivered_to"] = json.loads(row["delivered_to"]) if row["delivered_to"] else []
         row["errors"] = json.loads(row["errors"]) if row["errors"] else []
@@ -103,8 +116,8 @@ def inbox(limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict[str, Any]:
 
 
 @router.post("/alerts/inbox/read")
-def mark_read() -> dict[str, Any]:
-    return {"marked": appdb.mark_alerts_read()}
+def mark_read(user: User) -> dict[str, Any]:
+    return {"marked": appdb.mark_alerts_read(user_id=user.id)}
 
 
 @router.get("/brief/text", response_model=Envelope)

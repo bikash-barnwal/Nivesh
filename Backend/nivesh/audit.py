@@ -9,8 +9,8 @@ from typing import Any
 from nivesh.config import settings
 
 
-def record(action: str, payload: dict[str, Any] | None = None) -> None:
+def record(action: str, payload: dict[str, Any] | None = None, *, user_id: str) -> None:
     settings.logs_dir.mkdir(parents=True, exist_ok=True)
-    event = {"timestamp": datetime.now(UTC).isoformat(), "user_id": "local", "action": action, "payload": payload or {}}
+    event = {"timestamp": datetime.now(UTC).isoformat(), "user_id": user_id, "action": action, "payload": payload or {}}
     with (settings.logs_dir / "audit.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(event, default=str) + "\n")

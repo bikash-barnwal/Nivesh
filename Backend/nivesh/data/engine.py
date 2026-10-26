@@ -51,6 +51,11 @@ class Engine:
         self._con.execute(f"SET memory_limit = '{memory_limit or settings.duckdb_memory_limit}'")
         if threads:
             self._con.execute(f"SET threads = {int(threads)}")
+        # Second lock behind the SQL guard: this connection may read only the Parquet root, and no query can change
+        # a setting (users' SQL runs here).
+        self._con.execute(f"SET allowed_directories = ['{_sql_str(self.parquet_dir)}']")
+        self._con.execute("SET enable_external_access = false")
+        self._con.execute("SET lock_configuration = true")
         self._lock = threading.Lock()
         self._views: dict[str, ViewInfo] = {}
         self._freshness: dict[str, date | None] = {}

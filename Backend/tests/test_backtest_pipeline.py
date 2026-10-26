@@ -161,27 +161,35 @@ def test_a_strategy_with_too_few_trades_cannot_pass(world):
 
 def test_run_is_saved_listed_and_reloadable(world):
     strat = get_strategy("leaders_pullback_v1")
-    run_id = store.run_and_save(strat)
+    run_id = store.run_and_save(strat, owner="alice")
     assert run_id.startswith("leaders_pullback_v1-")
-    loaded = store.load_run(run_id)
+    loaded = store.load_run(run_id, owner="alice")
     assert loaded["run"]["strategy"]["name"] == "leaders_pullback" and loaded["gates"] is not None
-    equity = store.load_equity(run_id)
+    assert loaded["run"]["owner"] == "alice"
+    equity = store.load_equity(run_id, owner="alice")
     assert equity["drawdown"].max() <= 0 and equity.height == loaded["run"]["sessions"]
-    assert store.load_trades(run_id).height == loaded["metrics"]["trades"]
-    assert any(r["run_id"] == run_id for r in store.list_runs())
-    assert any(r["run_id"] == run_id for r in store.latest_per_strategy())
+    assert store.load_trades(run_id, owner="alice").height == loaded["metrics"]["trades"]
+    assert any(r["run_id"] == run_id for r in store.list_runs(owner="alice"))
+    assert any(r["run_id"] == run_id for r in store.latest_per_strategy(owner="alice"))
+    # Another user cannot see, open or read it; an admin (owner=None) can.
+    assert not any(r["run_id"] == run_id for r in store.list_runs(owner="bob"))
+    for read in (store.load_run, store.load_equity, store.load_trades):
+        with pytest.raises(KeyError):
+            read(run_id, owner="bob")
+    assert any(r["run_id"] == run_id for r in store.list_runs(owner=None))
+    assert store.load_run(run_id, owner=None)["run"]["owner"] == "alice"
 
 
 def test_run_ids_cannot_escape_the_runs_directory(world):
     for bad in ("../x", "..", "a/b", "", "x" * 5 + "/../.."):
         with pytest.raises(KeyError):
-            store.load_run(bad)
+            store.load_run(bad, owner=None)
 
 
 def _wait(job_id: str, timeout: float = 90.0) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        job = store.job_status(job_id)
+        job = store.job_status(job_id, owner="alice")
         if job and job["status"] != "running":
             return job
         time.sleep(0.2)
@@ -189,13 +197,25 @@ def _wait(job_id: str, timeout: float = 90.0) -> dict:
 
 
 def test_background_job_completes_and_failures_are_reported(world):
-    done = _wait(store.submit(get_strategy("trend_stack_v1"), None, None, with_gates=False))
+    done = _wait(store.submit(get_strategy("trend_stack_v1"), None, None, with_gates=False, owner="alice"))
     assert done["status"] == "done" and done["run_id"]
     bad = get_strategy("trend_stack_v1").model_copy(
         update={"entry": get_strategy("trend_stack_v1").entry.model_copy(update={"when": "not_a_column > 1"})}
     )
-    failed = _wait(store.submit(bad, None, None, with_gates=False))
+    failed = _wait(store.submit(bad, None, None, with_gates=False, owner="alice"))
     assert failed["status"] == "failed" and "not_a_column" in failed["error"]
+    assert store.job_status(done["job_id"], owner="bob") is None, "other users cannot see a job"
+
+
+def test_one_running_backtest_per_user_and_a_capped_queue(monkeypatch):
+    jobs = {"j1": {"job_id": "j1", "owner": "alice", "status": "running"}}
+    monkeypatch.setattr(store, "_jobs", jobs)
+    with pytest.raises(store.Busy):
+        store.submit(get_strategy("trend_stack_v1"), None, None, False, owner="alice")
+    for i in range(store.MAX_QUEUED_JOBS):
+        jobs[f"x{i}"] = {"job_id": f"x{i}", "owner": f"u{i}", "status": "running"}
+    with pytest.raises(store.Busy):
+        store.submit(get_strategy("trend_stack_v1"), None, None, False, owner="carol")
 
 
 def test_backtest_without_built_analytics_fails_clearly(tmp_path):
