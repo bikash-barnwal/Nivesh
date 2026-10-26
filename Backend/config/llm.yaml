@@ -43,15 +43,35 @@ fallbacks:
 # the "Copilot keys" dialog; the first one is the default. A user key never falls back to the server's keys.
 byok:
   gemini:
-    router: {model: gemini-2.5-flash, temperature: 0,   json: true}
-    sql:    {model: gemini-2.5-flash, temperature: 0,   json: true}
-    repair: {model: gemini-2.5-flash, temperature: 0,   json: true}
-    synth:  {model: gemini-2.5-flash, temperature: 0.2, json: false}
+    # Google: "gemini-2.5-flash is no longer available to new users ... use gemini-3.8-flash" (2026-10-27).
+    router: {model: gemini-3.8-flash, temperature: 0,   json: true}
+    sql:    {model: gemini-3.8-flash, temperature: 0,   json: true}
+    repair: {model: gemini-3.8-flash, temperature: 0,   json: true}
+    synth:  {model: gemini-3.8-flash, temperature: 0.2, json: false}
 
 # Models a user may pick for their own key (Other page). The pick replaces the model of every role above for that
 # user; temperature and JSON mode stay. Model ids drift: confirm with `uv run nivesh llm-ping`.
+# Text-chat models listed by the Gemini API (2026-10-27); 2.5 models left out (closed to new users). Listed does not
+# mean every key may call it: free-tier keys can be refused for some (the Copilot then shows the provider's error).
+# Tried in order, with the same user key, when the picked model fails (busy, rate-limited, refused).
+byok_fallbacks:
+  gemini: [gemini-3.7-flash, gemini-flash-latest, gemini-3.5-flash]
+
 byok_models:
-  gemini: [gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite]
+  gemini:
+    - gemini-3.8-flash
+    - gemini-3-flash-preview
+    - gemini-3.1-pro-preview
+    - gemini-3.1-flash-lite
+    - gemini-3.1-flash-lite-preview
+    - gemini-3.5-flash
+    - gemini-3.5-flash-lite
+    - gemini-3.6-flash
+    - gemini-3.7-flash
+    - gemini-4-argon
+    - gemini-pro-latest
+    - gemini-flash-latest
+    - gemini-flash-lite-latest
 
 limits:
   timeout_s: 90

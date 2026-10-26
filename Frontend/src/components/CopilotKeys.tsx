@@ -8,10 +8,11 @@ const PROVIDERS: Record<string, { label: string; getKey: string }> = {
   gemini: { label: 'Google Gemini', getKey: 'https://aistudio.google.com/apikey' },
 }
 
-const MODEL_NOTES: Record<string, string> = {
-  'gemini-2.5-flash': 'fast, low cost (default)',
-  'gemini-2.5-pro': 'smartest, slower',
-  'gemini-2.5-flash-lite': 'fastest, cheapest',
+/** A short hint from the model's name (Google's naming: pro = strongest, flash = balanced, lite = fastest). */
+function modelNote(id: string): string {
+  const kind = id.includes('-pro') ? 'strongest, slower' : id.includes('lite') ? 'fastest, cheapest' : id.includes('flash') ? 'fast, balanced' : 'experimental'
+  const extra = [id.includes('preview') && 'preview, may change', id.endsWith('-latest') && 'always Google’s newest']
+  return [kind, ...extra.filter(Boolean)].join(' · ')
 }
 
 const label = (p: string) => PROVIDERS[p]?.label ?? p
@@ -141,28 +142,32 @@ export function AiKeyAndModel() {
 
       <section aria-labelledby="model-heading" className="space-y-4">
         <h3 id="model-heading" className="font-semibold">AI model</h3>
-        <p className="text-muted">The model your Copilot uses for every step (routing, SQL, the written answer). Only you are affected.</p>
+        <p className="text-muted">
+          The model your Copilot uses for every step (routing, SQL, the written answer). Only you are affected. Some models
+          may refuse free-tier keys; if a question fails, pick another or use Default.
+        </p>
         {options.length === 0 ? (
           <p className="text-muted">No models are offered for your own key on this server.</p>
         ) : (
-          <fieldset className="space-y-2" disabled={pickModel.isPending}>
-            <legend className="sr-only">AI model</legend>
-            {[{ id: '', note: 'each step uses the recommended model' }, ...options.map((m) => ({ id: m, note: MODEL_NOTES[m] ?? '' }))].map((o) => (
-              <label key={o.id || 'default'} className="flex cursor-pointer items-center gap-3 rounded border border-line px-3 py-2 hover:bg-panel-2">
-                <input
-                  type="radio"
-                  name="copilot-model"
-                  checked={current === o.id}
-                  onChange={() => {
-                    setPicked(o.id)
-                    pickModel.mutate(o.id || null)
-                  }}
-                />
-                <span className="font-medium">{o.id || 'Default'}</span>
-                {o.note && <span className="text-xs text-muted">{o.note}</span>}
-              </label>
-            ))}
-          </fieldset>
+          <label className="block">
+            <span className="mb-1 block text-xs text-muted">Model</span>
+            <select
+              value={current}
+              disabled={pickModel.isPending}
+              onChange={(e) => {
+                setPicked(e.target.value)
+                pickModel.mutate(e.target.value || null)
+              }}
+              className="w-full rounded border border-line bg-panel-2 px-3 py-2"
+            >
+              <option value="">Default ({options[0]}) · recommended</option>
+              {options.map((m) => (
+                <option key={m} value={m}>
+                  {m} · {modelNote(m)}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         {pickModel.isError && <p className="text-bad">{pickModel.error.message}</p>}
         {pickModel.isSuccess && <p className="text-good">Saved. Your next question uses it.</p>}

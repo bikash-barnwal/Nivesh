@@ -20,6 +20,8 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/me", tags=["me"])
 
 _TEST_PROMPT = [{"role": "user", "content": 'Reply with the JSON {"ok": true}.'}]
+# Provider replies that say "busy or out of quota", not "bad key": the key itself is fine.
+_BUSY = ("Error code: 503", "Error code: 429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "high demand")
 
 
 class KeyIn(BaseModel):
@@ -89,10 +91,14 @@ def save_key(provider: str, body: KeyIn, user: User) -> dict[str, Any]:
     if not ratelimit.allow(user.id, "key_test", settings.user_key_tests_per_hour, 3600):
         raise HTTPException(status_code=429, detail="Too many key tests; try again in an hour.")
     try:
-        byok.build(user.id, provider, secret).chat("router", _TEST_PROMPT)
+        # Tested with the model the user picked, so a working test means their questions will work too.
+        byok.build(user.id, provider, secret, model=byok.chosen_model(user.id)).chat("router", _TEST_PROMPT)
     except (LLMError, LLMConfigError) as exc:
-        reason = userkeys.redact(str(exc), secret)[:300]
-        raise HTTPException(status_code=400, detail=f"The key did not work: {reason}") from None
+        reason = userkeys.redact(str(exc), secret)
+        failures = [f for f in reason.split(" | ") if f.strip()]
+        if failures and all(any(mark in f for mark in _BUSY) for f in failures):
+            return userkeys.save_key(user.id, provider, secret, "saved; models busy at test time")
+        raise HTTPException(status_code=400, detail=f"The key did not work: {reason[:300]}") from None
     return userkeys.save_key(user.id, provider, secret, "ok")
 
 

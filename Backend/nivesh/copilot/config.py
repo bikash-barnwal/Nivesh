@@ -66,6 +66,7 @@ class LLMConfig(_Model):
     policy: dict[str, bool] = Field(default_factory=dict)
     byok: dict[str, dict[str, ByokTarget]] = Field(default_factory=dict)
     byok_models: dict[str, list[str]] = Field(default_factory=dict)
+    byok_fallbacks: dict[str, list[str]] = Field(default_factory=dict)
 
     def chain(self, role: str) -> list[Target]:
         if role not in self.roles:
@@ -83,16 +84,17 @@ class LLMConfig(_Model):
             unknown = set(roles) - set(self.roles)
             if unknown:
                 raise LLMConfigError(f"byok provider '{name}' sets unknown roles {sorted(unknown)}")
-        for name in self.byok_models:
-            if name not in self.byok:
-                raise LLMConfigError(f"byok_models lists '{name}', which is not under byok")
+        for key, listed in (("byok_models", self.byok_models), ("byok_fallbacks", self.byok_fallbacks)):
+            for name in listed:
+                if name not in self.byok:
+                    raise LLMConfigError(f"{key} lists '{name}', which is not under byok")
 
     def user_models(self, provider: str) -> list[str]:
         """Models a user may pick for `provider`: the configured list, else the models its roles already use."""
         return self.byok_models.get(provider) or sorted({t.model for t in self.byok.get(provider, {}).values()})
 
     def for_user_key(self, provider: str, model: str | None = None) -> LLMConfig:
-        """Only the byok roles, all on `provider`, with no fallbacks: a user key never reaches the server's keys.
+        """Only the byok roles, all on `provider` (fallbacks too): a user key never reaches the server's keys.
         `model` (the user's pick, if allowed) replaces every role's model."""
         if provider not in self.byok:
             raise LLMConfigError(f"'{provider}' is not offered for your own key")
@@ -102,8 +104,21 @@ class LLMConfig(_Model):
             role: Target(provider=provider, model=model or t.model, temperature=t.temperature, json=t.json_output)
             for role, t in self.byok[provider].items()
         }
+        # Same provider, same user key: other models to try when the chosen one is busy or refuses.
+        fallbacks = {
+            role: [
+                Target(provider=provider, model=m, temperature=t.temperature, json=t.json_output)
+                for m in self.byok_fallbacks.get(provider, [])
+                if m != t.model
+            ]
+            for role, t in roles.items()
+        }
         return LLMConfig(
-            providers={provider: self.providers[provider]}, roles=roles, limits=self.limits, policy=self.policy
+            providers={provider: self.providers[provider]},
+            roles=roles,
+            fallbacks=fallbacks,
+            limits=self.limits,
+            policy=self.policy,
         )
 
 

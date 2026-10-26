@@ -21,6 +21,7 @@ from tests.synth import make_dataset
 
 GOOD_KEY = "AIzaSy" + "k" * 33  # shaped like a Gemini key, not a real one
 BAD_KEY = "AIzaSy" + "b" * 33
+BUSY_KEY = "AIzaSy" + "z" * 33  # a valid key whose models are all overloaded right now
 
 
 class FakeCompletions:
@@ -28,6 +29,8 @@ class FakeCompletions:
         self.secret = secret
 
     def create(self, **_params):
+        if self.secret == BUSY_KEY:
+            raise RuntimeError("Error code: 503 - This model is currently experiencing high demand. UNAVAILABLE")
         if self.secret != GOOD_KEY:
             # Providers sometimes echo part of the key back; it must never reach the user.
             raise RuntimeError(f"401 API key not valid: {self.secret}")
@@ -111,7 +114,7 @@ def test_a_user_key_never_falls_back_to_server_keys(client, signer):
 
     user_config = load_config().for_user_key("gemini")
     assert set(user_config.providers) == {"gemini"}
-    assert user_config.fallbacks == {}
+    assert user_config.fallbacks["router"], "busy models fall back to other models of the same provider"
     assert all(t.provider == "gemini" for role in user_config.roles for t in user_config.chain(role))
 
 
@@ -182,10 +185,11 @@ def test_engine_cannot_read_outside_its_data_or_change_settings(client):
 def test_each_user_picks_their_own_model_from_the_allowed_list(client, signer):
     a, b = signer.headers("user_a"), signer.headers("user_b")
     options = client.get("/api/me", headers=a).json()["copilot"]["models"]["gemini"]
-    assert "gemini-2.5-pro" in options
+    assert "gemini-3.1-pro-preview" in options
     assert client.put("/api/me/settings", json={"copilot_model": "gpt-4o"}, headers=a).status_code == 422
-    assert client.put("/api/me/settings", json={"copilot_model": "gemini-2.5-pro"}, headers=a).status_code == 200
-    assert client.get("/api/me", headers=a).json()["settings"]["copilot_model"] == "gemini-2.5-pro"
+    pro = {"copilot_model": "gemini-3.1-pro-preview"}
+    assert client.put("/api/me/settings", json=pro, headers=a).status_code == 200
+    assert client.get("/api/me", headers=a).json()["settings"]["copilot_model"] == "gemini-3.1-pro-preview"
     assert client.get("/api/me", headers=b).json()["settings"] == {}, "settings are per user"
     assert client.put("/api/me/settings", json={"copilot_model": None}, headers=a).json()["copilot_model"] is None
 
@@ -194,13 +198,13 @@ def test_the_picked_model_runs_every_copilot_step(client, signer):
     from nivesh.copilot.config import load_config
 
     config = load_config()
-    picked = config.for_user_key("gemini", "gemini-2.5-pro")
-    assert {t.model for role in picked.roles for t in picked.chain(role)} == {"gemini-2.5-pro"}
+    picked = config.for_user_key("gemini", "gemini-3.1-pro-preview")
+    assert {picked.chain(role)[0].model for role in picked.roles} == {"gemini-3.1-pro-preview"}, "first try: the pick"
     assert picked.roles["synth"].temperature == config.byok["gemini"]["synth"].temperature
     unknown = config.for_user_key("gemini", "not-offered-anymore")
     assert unknown.roles["router"].model == config.byok["gemini"]["router"].model, "unknown pick falls back"
-    client.put("/api/me/settings", json={"copilot_model": "gemini-2.5-pro"}, headers=signer.headers("user_m"))
-    assert byok.chosen_model("user_m") == "gemini-2.5-pro"
+    client.put("/api/me/settings", json={"copilot_model": "gemini-3.1-pro-preview"}, headers=signer.headers("user_m"))
+    assert byok.chosen_model("user_m") == "gemini-3.1-pro-preview"
 
 
 def test_a_machine_override_without_own_key_options_keeps_them_from_llm_yaml(tmp_path, monkeypatch):
@@ -221,4 +225,11 @@ def test_a_machine_override_without_own_key_options_keeps_them_from_llm_yaml(tmp
     monkeypatch.setattr(settings, "llm_local_override", True)
     config = load_config()
     assert config.roles["router"].model == "x", "the override still picks the server models"
-    assert "gemini" in config.byok and "gemini-2.5-pro" in config.user_models("gemini")
+    assert "gemini" in config.byok and "gemini-3.1-pro-preview" in config.user_models("gemini")
+
+
+def test_a_busy_model_does_not_reject_a_good_key(client, signer):
+    a = signer.headers("user_busy")
+    saved = client.put("/api/me/llm-keys/gemini", json={"key": BUSY_KEY}, headers=a)
+    assert saved.status_code == 200 and "busy" in saved.json()["last_status"]
+    assert BUSY_KEY not in saved.text

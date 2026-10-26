@@ -81,6 +81,8 @@ function StockSearch() {
   )
 }
 
+const STALE_AFTER_DAYS = 4
+
 function AsOfBar() {
   const asOf = useAsOf()
   const setAsOf = useSetAsOf()
@@ -90,6 +92,8 @@ function AsOfBar() {
   const sessions = (history.data?.data ?? []).map((r) => r.date).sort()
   const index = asOf ? Math.max(0, sessions.findIndex((d) => d >= asOf)) : sessions.length - 1
   const historical = !!asOf && !!through && asOf < through
+  // Calendar days since the last loaded session (weekends and holidays make 1-4 normal).
+  const staleDays = through ? Math.floor((Date.now() - new Date(`${through}T00:00:00`).getTime()) / 86_400_000) : null
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-panel/70 px-4 py-2 text-xs text-muted">
@@ -123,7 +127,14 @@ function AsOfBar() {
         Latest
       </button>
       {historical && <Badge className="border-warn/60 bg-warn/10 text-warn">Historical read</Badge>}
-      <span className="ml-auto">Data through {through ?? '—'}</span>
+      <span className="ml-auto">
+        Data through {through ?? '—'}
+        {staleDays !== null && staleDays > STALE_AFTER_DAYS && (
+          <span className="ml-2 text-warn" title="The nightly data update has not run since then; later dates cannot be picked until it does.">
+            · {staleDays} days old, newer days not loaded yet
+          </span>
+        )}
+      </span>
     </div>
   )
 }
