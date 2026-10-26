@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # Extra local folders of Markdown notes for the copilot's knowledge search (JSON list in NIVESH_EXTRA_DOCS_DIRS).
     extra_docs_dirs: list[Path] = []
 
+    # Clerk sign-in. Empty jwks url = auth off (local dev). Set it to https://<clerk-frontend-api>/.well-known/jwks.json.
+    clerk_jwks_url: str = ""
+    # Clerk user ids (user_...) allowed in. Empty = nobody; the 403 message shows the id to add.
+    allowed_user_ids: list[str] = []
+
     query_timeout_s: float = 60.0
     max_result_rows: int = 500
     duckdb_memory_limit: str = "4GB"

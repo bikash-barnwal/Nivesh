@@ -1,3 +1,4 @@
+import { authFetch } from './auth'
 import { useCallback, useRef, useState } from 'react'
 
 export type Evidence = {
@@ -101,7 +102,7 @@ export function useCopilot() {
     const update = (fn: (t: Turn) => Turn) => setTurns((all) => all.map((t) => (t.id === id ? fn(t) : t)))
     abort.current = new AbortController()
     try {
-      const res = await fetch('/api/copilot/ask', {
+      const res = await authFetch('/api/copilot/ask', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ question }),

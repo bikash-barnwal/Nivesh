@@ -1,3 +1,5 @@
+import { authFetch } from '../lib/auth'
+
 /** Standard envelope every intelligence endpoint returns. `extra` endpoint fields are added by intersection. */
 export type Envelope<T> = {
   as_of: string | null
@@ -39,15 +41,15 @@ async function parse<T>(res: Response): Promise<T> {
 }
 
 export async function get<T>(path: string, params?: Params, signal?: AbortSignal): Promise<T> {
-  return parse<T>(await fetch(url(path, params), { signal }))
+  return parse<T>(await authFetch(url(path, params), { signal }))
 }
 
 export async function send<T>(method: 'POST' | 'DELETE', path: string, params?: Params): Promise<T> {
-  return parse<T>(await fetch(url(path, params), { method }))
+  return parse<T>(await authFetch(url(path, params), { method }))
 }
 
 export async function post<T>(path: string, body: unknown): Promise<T> {
   return parse<T>(
-    await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    await authFetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
   )
 }

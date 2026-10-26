@@ -1,3 +1,4 @@
+import { UserButton } from '@clerk/react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
@@ -5,6 +6,8 @@ import { q } from '../api/queries'
 import { useAsOf, useSetAsOf } from '../lib/asof'
 import { num } from '../lib/format'
 import { Badge } from './ui'
+
+const clerkOn = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
 
 const NAV = [
   { to: '/market', label: 'Market' },
@@ -145,8 +148,9 @@ export function Shell() {
             </Link>
           ))}
         </nav>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
           <StockSearch />
+          {clerkOn && <UserButton />}
         </div>
       </header>
       <AsOfBar />

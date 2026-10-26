@@ -329,6 +329,28 @@ def test_news_api_hides_events_before_their_availability_date_and_rejects_bad_in
         engine_mod._engine, settings.data_dir = old_engine, old_dir
 
 
+def test_news_study_is_empty_not_an_error_when_the_news_pipeline_never_ran(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from nivesh.config import settings
+    from nivesh.data import engine as engine_mod
+    from nivesh.data.engine import Engine
+
+    seed_prices(tmp_path, weekdays(30), winner_from=weekdays(30)[10])
+    old_engine, old_dir = engine_mod._engine, settings.data_dir
+    settings.data_dir = tmp_path.parent
+    engine_mod._engine = Engine(tmp_path)
+    try:
+        from nivesh.api.main import app
+
+        with TestClient(app) as c:
+            res = c.get("/api/news/study")
+            assert res.status_code == 200
+            assert res.json()["data"] == []
+    finally:
+        engine_mod._engine, settings.data_dir = old_engine, old_dir
+
+
 def make_pdf(text: str) -> bytes:
     stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
     objs = [

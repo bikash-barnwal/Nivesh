@@ -53,8 +53,12 @@ def events(
 @router.get("/study", response_model=Envelope)
 def study() -> dict[str, Any]:
     engine = get_engine()
-    require_view(engine, "stock_event_study")
-    rows = engine.query("SELECT * FROM stock_event_study ORDER BY event_type").records()
+    # Optional news pipeline: without it the study is simply empty, as for /status.
+    rows = (
+        engine.query("SELECT * FROM stock_event_study ORDER BY event_type").records()
+        if "stock_event_study" in engine.views()
+        else []
+    )
     return envelope(
         rows,
         as_of=None,
