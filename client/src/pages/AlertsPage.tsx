@@ -146,7 +146,7 @@ function Rules() {
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-xs text-muted">Delivery: {res.channels.join(', ')}. Add Telegram or email in <code>Backend/.env</code> (see <code>.env.example</code>).</p>
+            <p className="mt-3 text-xs text-muted">Delivery: {res.channels.join(', ')}. Add Telegram or email in <code>server/.env</code> (see <code>.env.example</code>).</p>
           </>
         )}
       </QueryState>

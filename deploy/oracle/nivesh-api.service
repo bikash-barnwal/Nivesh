@@ -1,0 +1,38 @@
+[Unit]
+Description=Nivesh API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=nivesh
+Group=nivesh
+WorkingDirectory=/opt/nivesh/server
+EnvironmentFile=/etc/nivesh/nivesh.env
+ExecStart=/opt/nivesh/server/.venv/bin/nivesh server --host 127.0.0.1 --port 15000
+Restart=on-failure
+RestartSec=5
+
+# Sandbox: read-only system and code, writes only to the data folder, no privilege gain.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/nivesh/data
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

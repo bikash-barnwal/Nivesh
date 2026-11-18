@@ -1,0 +1,38 @@
+# Public HTTPS front door. Caddy gets and renews the certificate for the site name by itself.
+# NIVESH_SITE and NIVESH_CLERK_FAPI come from /etc/nivesh/caddy.env (see setup.sh); the API listens on localhost only.
+{$NIVESH_SITE} {
+	encode zstd gzip
+
+	request_body {
+		max_size 1MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		# Only this site and Clerk (sign-in, its avatar images and bot check) may run code or be called.
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://{$NIVESH_CLERK_FAPI} https://challenges.cloudflare.com; connect-src 'self' https://{$NIVESH_CLERK_FAPI} https://clerk-telemetry.com; img-src 'self' data: https://img.clerk.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://challenges.cloudflare.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		-Server
+	}
+
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy 127.0.0.1:15000
+	}
+
+	handle {
+		root * /opt/nivesh/client/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /var/log/caddy/nivesh-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
+}

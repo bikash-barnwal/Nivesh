@@ -30,7 +30,7 @@ class Provider(_Model):
             return "not-needed"  # local servers such as Ollama ignore the key
         key = os.environ.get(self.key_env, "").strip()
         if not key:
-            raise LLMConfigError(f"provider '{name}' needs an API key: set {self.key_env} (see Backend/.env.example)")
+            raise LLMConfigError(f"provider '{name}' needs an API key: set {self.key_env} (see server/.env.example)")
         return key
 
 

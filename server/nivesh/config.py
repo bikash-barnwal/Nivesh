@@ -3,19 +3,20 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-REPO_DIR = BACKEND_DIR.parent
+SERVER_DIR = Path(__file__).resolve().parents[1]
+BACKEND_DIR = SERVER_DIR
+REPO_DIR = SERVER_DIR.parent
 
 # Provider API keys (OPENROUTER_API_KEY, ...) are read from os.environ, so load .env into it.
-load_dotenv(BACKEND_DIR / ".env")
+load_dotenv(SERVER_DIR / ".env")
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="NIVESH_", extra="ignore")
 
     data_dir: Path = REPO_DIR / "data"
-    context_dir: Path = BACKEND_DIR / "context"
-    llm_config: Path = BACKEND_DIR / "config" / "llm.yaml"
+    context_dir: Path = SERVER_DIR / "context"
+    llm_config: Path = SERVER_DIR / "config" / "llm.yaml"
     # Prefer config/llm.local.yaml (gitignored, per machine) when it exists; tests turn this off.
     llm_local_override: bool = True
     # Extra local folders of Markdown notes for the copilot's knowledge search (JSON list in NIVESH_EXTRA_DOCS_DIRS).

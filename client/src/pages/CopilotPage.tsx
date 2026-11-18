@@ -192,7 +192,7 @@ export function CopilotPage() {
         )}
         {missing.length > 0 && (
           <p className="mb-3 rounded border border-warn/50 bg-warn/10 px-3 py-2 text-sm text-warn">
-            No API key found for: {missing.join(', ')}. Add it to <code>Backend/.env</code>, then restart the API. Run <code>uv run nivesh llm-ping</code> to check.
+            No API key found for: {missing.join(', ')}. Add it to <code>server/.env</code>, then restart the API. Run <code>uv run nivesh llm-ping</code> to check.
           </p>
         )}
         <div className="flex h-[32rem] flex-col gap-4 overflow-y-auto pr-1" aria-live="polite">

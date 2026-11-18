@@ -285,7 +285,7 @@ class EmailChannel:
 
 
 def configured_channels() -> list[Channel]:
-    """Channels enabled by environment variables (see Backend/.env.example). The in-app inbox is always on."""
+    """Channels enabled by environment variables (see server/.env.example). The in-app inbox is always on."""
     channels: list[Channel] = []
     token, chat = os.environ.get("NIVESH_TELEGRAM_TOKEN"), os.environ.get("NIVESH_TELEGRAM_CHAT_ID")
     if token and chat:

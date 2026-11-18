@@ -8,7 +8,7 @@ from nivesh.config import settings
 
 # Tests must see the committed config/llm.yaml, never a machine's llm.local.yaml.
 settings.llm_local_override = False
-# A machine's Backend/.env may turn sign-in on; tests opt in to it explicitly (see test_auth*.py).
+# A machine's server/.env may turn sign-in on; tests opt in to it explicitly (see test_auth*.py).
 settings.clerk_jwks_url = ""
 
 BHAV_HEADER = (

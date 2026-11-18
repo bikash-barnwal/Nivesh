@@ -100,7 +100,7 @@ def test_missing_keys_are_reported_clearly(stack, monkeypatch):
 
     class NoKeys(FakeLLM):
         def chat(self, role, messages, **kw):
-            raise LLMConfigError("provider 'gemini' needs an API key: set GEMINI_API_KEY (see Backend/.env.example)")
+            raise LLMConfigError("provider 'gemini' needs an API key: set GEMINI_API_KEY (see server/.env.example)")
 
     use(monkeypatch, NoKeys({}))
     _, events = ask(client, "prices")

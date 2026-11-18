@@ -1,8 +1,8 @@
 import { defineConfig } from '@playwright/test'
 
 // The smoke tests run against synthetic data (`uv run nivesh demo-data`), never the real NSE dataset:
-//   cd Backend && uv run nivesh demo-data     # once
-//   cd Frontend && npx playwright test
+//   cd server && uv run nivesh demo-data     # once
+//   cd client && npx playwright test
 const demoDir = process.env.NIVESH_DEMO_DIR ?? '../data/demo'
 
 export default defineConfig({
@@ -13,8 +13,8 @@ export default defineConfig({
   use: { baseURL: 'http://127.0.0.1:15001', viewport: { width: 1440, height: 1000 } },
   webServer: [
     {
-      command: 'uv run nivesh serve --port 15000',
-      cwd: '../Backend',
+      command: 'uv run nivesh server --port 15000',
+      cwd: '../server',
       env: { NIVESH_DATA_DIR: demoDir },
       url: 'http://127.0.0.1:15000/health',
       reuseExistingServer: true,

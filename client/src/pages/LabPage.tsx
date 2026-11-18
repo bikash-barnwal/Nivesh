@@ -111,7 +111,7 @@ export function LabPage() {
     <div className="space-y-4">
       <Card title="Strategy lab" hint="(YAML-defined strategies · point-in-time data · costs and slippage included)">
         <p className="mb-3 text-sm text-muted">
-          Strategies live in <code className="text-text">Backend/context/strategies/</code>. A backtest enters on the next open after a signal, applies stops, gap
+          Strategies live in <code className="text-text">server/context/strategies/</code>. A backtest enters on the next open after a signal, applies stops, gap
           risk, brokerage, STT and slippage, and is then put through anti-overfitting gates (out-of-sample, parameter sensitivity, cost stress, regime spread).
           Passing the gates is necessary, not sufficient.
         </p>

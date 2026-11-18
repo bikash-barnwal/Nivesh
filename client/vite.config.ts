@@ -2,7 +2,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
-// The API runs on 127.0.0.1:15000 (`uv run nivesh serve`); proxying keeps the browser same-origin, so no CORS in dev.
+// The API runs on 127.0.0.1:15000 (`uv run nivesh server`); proxying keeps the browser same-origin, so no CORS in dev.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   test: { include: ['src/**/*.test.ts'], environment: 'node' },

@@ -253,7 +253,7 @@ def news_study(min_confidence: float = 0.6) -> None:
 
 @app.command()
 def ask(question: str) -> None:
-    """Ask the copilot a question about the loaded data (needs LLM keys: see Backend/.env.example)."""
+    """Ask the copilot a question about the loaded data (needs LLM keys: see server/.env.example)."""
     from rich.markdown import Markdown
 
     from nivesh.copilot.client import OpenAICompatibleLLM
@@ -307,7 +307,7 @@ def demo_data(
     with console.status("generating synthetic market and running analytics..."):
         days = make_demo_dataset(root, sessions=sessions, symbols=symbols)
     console.print(f"Demo data ready: {symbols} symbols x {sessions} sessions, {days[0]} to {days[-1]}")
-    console.print(f"Serve it with:  NIVESH_DATA_DIR={base.resolve()} uv run nivesh serve")
+    console.print(f"Serve it with:  NIVESH_DATA_DIR={base.resolve()} uv run nivesh server")
 
 
 @app.command("claim-local")
@@ -322,7 +322,7 @@ def claim_local(user_id: Annotated[str, typer.Argument(help="Clerk user id (user
     console.print("Backtest runs without an owner stay visible to admins.")
 
 
-@app.command()
+@app.command("server")
 def serve(host: str = "127.0.0.1", port: int = 15000, reload: bool = False, scheduler: bool = False) -> None:
     """Start the API (localhost only by default; put it behind Caddy with sign-in on before exposing it)."""
     import os
