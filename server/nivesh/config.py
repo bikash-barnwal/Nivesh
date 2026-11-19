@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -31,6 +32,13 @@ class Settings(BaseSettings):
     allowed_user_ids: list[str] = []
     # Encrypts users' own model keys at rest (AES-GCM). 32 random bytes, urlsafe base64. Empty = feature off.
     keys_master_key: str = ""
+
+    # Upstox Analytics Token (read-only market data). Read from UPSTOX_API_KEY or NIVESH_UPSTOX_API_KEY.
+    upstox_api_key: str = ""
+
+    @property
+    def resolved_upstox_token(self) -> str:
+        return self.upstox_api_key or os.environ.get("UPSTOX_API_KEY", "")
 
     # Per-user limits for signed-in users (the local user with sign-in off is not limited).
     user_copilot_per_day: int = 100

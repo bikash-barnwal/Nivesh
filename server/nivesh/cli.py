@@ -15,6 +15,10 @@ from rich.table import Table
 app = typer.Typer(help="Nivesh data and intelligence CLI", no_args_is_help=True)
 console = Console()
 
+# Register Upstox intraday commands (Milestone 2)
+from nivesh.data import upstox_cli as _upstox_cli  # noqa: E402
+_upstox_cli.register(app)
+
 
 def _parse_date(value: str) -> date:
     return date.today() if value == "today" else datetime.strptime(value, "%Y-%m-%d").date()

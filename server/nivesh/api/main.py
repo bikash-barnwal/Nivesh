@@ -22,6 +22,7 @@ from nivesh.api.news import router as news_router
 from nivesh.api.paper import router as paper_router
 from nivesh.api.sectors import router as sectors_router
 from nivesh.api.stocks import router as stocks_router
+from nivesh.api.intraday import router as intraday_router
 from nivesh.data.engine import get_engine
 from nivesh.userkeys import validate_master_key
 
@@ -97,5 +98,6 @@ app.include_router(alerts_router, dependencies=[Depends(current_user)])
 app.include_router(copilot_router, dependencies=[Depends(current_user)])
 app.include_router(sectors_router, dependencies=[Depends(current_user)])
 app.include_router(stocks_router, dependencies=[Depends(current_user)])
+app.include_router(intraday_router, dependencies=[Depends(current_user)])
 app.include_router(news_router, dependencies=[Depends(current_user)])
 app.include_router(me_router, dependencies=[Depends(current_user)])

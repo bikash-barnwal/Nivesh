@@ -21,6 +21,7 @@ dependencies = [
     "rich>=13.7",
     "apscheduler>=3.10,<4",
     "tzdata>=2024.1",
+    "pytz>=2024.1",
     "pypdf>=6.19.0",
     "pyjwt[crypto]>=2.15.1",
 ]
